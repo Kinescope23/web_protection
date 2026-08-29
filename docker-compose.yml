@@ -1,0 +1,7 @@
+services:
+  net-protector:
+    build: .
+    container_name: net-protector
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

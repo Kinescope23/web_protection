@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+central/model/*.pkl
+central/uploads/
+
+# Go
+agent/sentinel-agent
+*.exe
+
+# Node
+dashboard/node_modules/
+dashboard/dist/
+
+# Docker & Env
+.env
+*.pem
+*.log
