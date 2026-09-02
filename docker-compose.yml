@@ -1,7 +1,74 @@
 services:
-  net-protector:
-    build: .
-    container_name: net-protector
+  db:
+    image: postgres:15-alpine
+    container_name: np-db
+    environment:
+      POSTGRES_USER: np_user
+      POSTGRES_PASSWORD: np_pass
+      POSTGRES_DB: np_db
     ports:
-      - "8000:8000"
-    restart: unless-stopped
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U np_user -d np_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  backend:
+    build: ./backend
+    container_name: np-backend
+    environment:
+      - DATABASE_URL=postgresql://np_user:np_pass@db:5432/np_db
+      - SECRET_KEY=dev-secret-key-change-in-production-32-chars
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend
+
+  frontend:
+    build: ./frontend
+    container_name: np-frontend
+    depends_on:
+      - backend
+    networks:
+      - backend
+
+  agent:
+    build: ./agent
+    container_name: np-agent
+    environment:
+      - SERVER_URL=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - backend
+
+  nginx:
+    build: ./nginx
+    container_name: np-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - backend
+
+volumes:
+  pgdata:
+
+networks:
+  backend:
+    driver: bridge

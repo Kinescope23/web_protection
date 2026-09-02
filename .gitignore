@@ -6,6 +6,7 @@ dist/
 build/
 .venv/
 venv/
+.eggs/
 central/model/*.pkl
 central/uploads/
 
@@ -16,8 +17,26 @@ agent/sentinel-agent
 # Node
 dashboard/node_modules/
 dashboard/dist/
+node_modules/
+dist/
+*.local
 
 # Docker & Env
 .env
 *.pem
 *.log
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads
+uploads/
