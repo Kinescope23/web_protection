@@ -1,5 +1,5 @@
-from sqlalchemy import Column, BigInteger, String, Boolean, Text, DateTime, ForeignKey
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import Column, BigInteger, String, Boolean, Text, DateTime, ForeignKey, Integer
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
 Base = declarative_base()
@@ -38,3 +38,32 @@ class APIToken(Base):
     expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
+
+class InvitationKey(Base):
+    __tablename__ = "invitation_keys"
+    id = Column(BigInteger, primary_key=True)
+    key = Column(String(64), unique=True, nullable=False, index=True)
+    created_by = Column(BigInteger, ForeignKey("users.id"), nullable=False)
+    is_used = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey("users.id"), nullable=True)
+    action = Column(String(255), nullable=False)
+    details = Column(Text)
+    ip_address = Column(String(45))
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+
+class RequestLog(Base):
+    __tablename__ = "request_logs"
+    id = Column(BigInteger, primary_key=True)
+    agent_id = Column(String(64), nullable=False)
+    src_ip = Column(String(45), nullable=False)
+    method = Column(String(16), nullable=False)
+    path = Column(String(255), nullable=False)
+    status_code = Column(Integer, nullable=False)
+    verdict = Column(String(16), nullable=False)
+    latency_ms = Column(Integer, nullable=False)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
