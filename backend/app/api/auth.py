@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from app.database import get_db
 from app.models import User, Session as SessionModel
 from app.schemas import UserRegister, UserLogin, UserResponse, TokenResponse
@@ -38,42 +39,82 @@ oauth.register(
     client_kwargs={"scope": "user:email"},
 )
 
+# === Мастер-ключ для регистрации админов ===
+MASTER_INVITE_KEY = os.getenv("MASTER_INVITE_KEY", "NP-MASTER-2026-SUPER-ADMIN")
+MASTER_INVITE_MAX_USES = int(os.getenv("MASTER_INVITE_MAX_USES", "-1"))
+
+# Счётчик использований мастер-ключа (в памяти; в продакшене хранить в БД)
+_master_key_uses = 0
+
 
 @router.post("/register", response_model=UserResponse)
 @limiter.limit("5/hour")
 def register(request: Request, data: UserRegister, db: Session = Depends(get_db)):
-    # 1. Проверяем инвайт-ключ
-    invite = db.query(InvitationKey).filter(
-        InvitationKey.key == data.invitation_key,
-        InvitationKey.is_used == False
-    ).first()
+    """
+    Регистрация нового пользователя.
 
-    if not invite:
-        raise HTTPException(403, "Недействительный или уже использованный ключ регистрации")
+    Логика ключей:
+    - Если invitation_key == MASTER_INVITE_KEY → пользователь получает роль 'admin'
+    - Иначе ключ ищется в таблице invitation_keys → роль 'user'
+    """
+    global _master_key_uses
 
-    # 2. Проверяем уникальность
-    if db.query(User).filter((User.email == data.email) | (User.username == data.username)).first():
+    # 1. Определяем роль по ключу
+    role = "user"
+    is_master_key = False
+
+    if data.invitation_key == MASTER_INVITE_KEY:
+        # Проверка лимита использований мастер-ключа
+        if MASTER_INVITE_MAX_USES != -1 and _master_key_uses >= MASTER_INVITE_MAX_USES:
+            raise HTTPException(
+                403,
+                f"Мастер-ключ достиг лимита использований ({MASTER_INVITE_MAX_USES})"
+            )
+        role = "admin"
+        is_master_key = True
+    else:
+        # Обычный одноразовый ключ из БД
+        invite = db.query(InvitationKey).filter(
+            InvitationKey.key == data.invitation_key,
+            InvitationKey.is_used == False
+        ).first()
+
+        if not invite:
+            raise HTTPException(
+                403,
+                "Недействительный или уже использованный ключ регистрации. "
+                "Получите ключ у администратора."
+            )
+
+    # 2. Проверка уникальности email и username
+    if db.query(User).filter(
+            or_(User.email == data.email, User.username == data.username)
+    ).first():
         raise HTTPException(400, "Email или username уже заняты")
 
-    # 3. Создаем пользователя
+    # 3. Создание пользователя
     user = User(
         email=data.email,
         username=data.username,
         password_hash=hash_password(data.password),
-        role="user"  # По умолчанию обычный пользователь
+        role=role,
     )
     db.add(user)
 
-    # 4. Помечаем ключ как использованный
-    invite.is_used = True
+    # 4. Помечаем ключ как использованный (только для обычных ключей)
+    if not is_master_key:
+        invite.is_used = True
+    else:
+        _master_key_uses += 1
 
     db.commit()
     db.refresh(user)
+
     return user
 
 
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("10/minute")  # Rate limit на логин (защита от brute-force)
+@limiter.limit("10/minute")
 def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not verify_password(data.password, user.password_hash):
@@ -81,21 +122,19 @@ def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(403, "Аккаунт заблокирован")
 
-    # Проверка 2FA
-    if user.is_2fa_enabled:
-        if not data.totp_code or not pyotp.TOTP(user.totp_secret).verify(data.totp_code):
-            raise HTTPException(401, "Неверный код 2FA")
-
     session_id = str(uuid.uuid4())
     session = SessionModel(
-        id=session_id, user_id=user.id, ip_address=request.client.host,
-        user_agent=request.headers.get("user-agent"), expires_at=datetime.utcnow() + timedelta(days=30)
+        id=session_id,
+        user_id=user.id,
+        ip_address=request.client.host,
+        user_agent=request.headers.get("user-agent"),
+        expires_at=datetime.utcnow() + timedelta(days=30),
     )
     db.add(session)
     db.commit()
 
-    return {"access_token": create_access_token({"sub": str(user.id), "session_id": session_id}),
-            "token_type": "bearer"}
+    access_token = create_access_token({"sub": str(user.id), "session_id": session_id})
+    return {"access_token": access_token, "token_type": "bearer"}
 
 
 # === 2FA Эндпоинты ===

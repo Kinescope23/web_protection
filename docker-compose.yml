@@ -26,6 +26,8 @@ services:
       - DATABASE_URL=postgresql://np_user:np_pass@db:5432/np_db
       - SECRET_KEY=dev-secret-key-change-in-production-32-chars
       - PYTHONUNBUFFERED=1
+      - MASTER_INVITE_KEY=${MASTER_INVITE_KEY:-NP-MASTER-2026-SUPER-ADMIN}
+      - MASTER_INVITE_MAX_USES=${MASTER_INVITE_MAX_USES:--1}
     ports:
       - "8001:8000"
     volumes:
