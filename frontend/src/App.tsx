@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Upload from './pages/Upload'
 import Profile from './pages/Profile'
@@ -11,7 +12,7 @@ import Admin from './pages/Admin'
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
   
-  // Ждем завершения проверки токена, прежде чем принимать решение
+  // Ждем завершения проверки токена
   if (loading) {
     return <div style={{ padding: 40, textAlign: 'center', fontFamily: 'Arial' }}>Загрузка системы...</div>
   }
@@ -30,7 +31,11 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
 function AppRoutes() {
   return (
     <Routes>
+      {/* Публичные роуты (без Layout) */}
       <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      
+      {/* Защищённые роуты (с Layout) */}
       <Route path="/" element={<Layout />}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
@@ -39,6 +44,8 @@ function AppRoutes() {
         <Route path="tokens" element={<ProtectedRoute><Tokens /></ProtectedRoute>} />
         <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
       </Route>
+      
+      {/* Fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )
