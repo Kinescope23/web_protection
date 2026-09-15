@@ -22,6 +22,7 @@ services:
   backend:
     build: ./backend
     container_name: np-backend
+    image: net-protector-backend:latest
     environment:
       - DATABASE_URL=postgresql://np_user:np_pass@db:5432/np_db
       - SECRET_KEY=dev-secret-key-change-in-production-32-chars
