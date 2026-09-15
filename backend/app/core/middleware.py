@@ -10,8 +10,7 @@ import json
 # ИСПРАВЛЕНО: Убираем жесткий format, который требовал request_id во ВСЕХ логах.
 # Теперь обычный logger.info("текст") будет работать без ошибок.
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 
 logger = logging.getLogger("net_protector")
@@ -37,7 +36,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             "method": request.method,
             "path": request.url.path,
             "status": response.status_code,
-            "duration_ms": duration_ms
+            "duration_ms": duration_ms,
         }
         logger.info(json.dumps(log_data))
 

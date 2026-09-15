@@ -17,11 +17,11 @@ os.makedirs(FINAL_DIR, exist_ok=True)
 @router.post("/init")
 @limiter.limit("10/minute")
 async def init_upload(
-        request: Request,
-        filename: str = Form(...),
-        total_size: int = Form(...),
-        total_chunks: int = Form(...),
-        user: User = Depends(get_current_user)
+    request: Request,
+    filename: str = Form(...),
+    total_size: int = Form(...),
+    total_chunks: int = Form(...),
+    user: User = Depends(get_current_user),
 ):
     if total_size > 5 * 1024 * 1024 * 1024:  # Лимит 5 ГБ
         raise HTTPException(status_code=413, detail="File too large (max 5GB)")
@@ -35,7 +35,7 @@ async def init_upload(
         "total_size": total_size,
         "total_chunks": total_chunks,
         "user_id": user.id,
-        "uploaded_chunks": 0
+        "uploaded_chunks": 0,
     }
     with open(os.path.join(upload_path, "meta.json"), "w") as f:
         json.dump(meta, f)
@@ -46,11 +46,11 @@ async def init_upload(
 @router.post("/chunk")
 @limiter.limit("100/minute")
 async def upload_chunk(
-        request: Request,
-        upload_id: str = Form(...),
-        chunk_index: int = Form(...),
-        file: UploadFile = File(...),
-        user: User = Depends(get_current_user)
+    request: Request,
+    upload_id: str = Form(...),
+    chunk_index: int = Form(...),
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
 ):
     upload_path = os.path.join(TMP_DIR, upload_id)
     meta_file = os.path.join(upload_path, "meta.json")
@@ -72,16 +72,20 @@ async def upload_chunk(
     with open(meta_file, "w") as f:
         json.dump(meta, f)
 
-    return {"chunk_index": chunk_index, "uploaded": meta["uploaded_chunks"], "total": meta["total_chunks"]}
+    return {
+        "chunk_index": chunk_index,
+        "uploaded": meta["uploaded_chunks"],
+        "total": meta["total_chunks"],
+    }
 
 
 @router.post("/complete")
 @limiter.limit("10/minute")
 async def complete_upload(
-        request: Request,
-        upload_id: str = Form(...),
-        checksum: str = Form(...),
-        user: User = Depends(get_current_user)
+    request: Request,
+    upload_id: str = Form(...),
+    checksum: str = Form(...),
+    user: User = Depends(get_current_user),
 ):
     upload_path = os.path.join(TMP_DIR, upload_id)
     meta_file = os.path.join(upload_path, "meta.json")

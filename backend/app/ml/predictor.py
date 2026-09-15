@@ -12,8 +12,12 @@ class BotTrafficPredictor:
 
     def __init__(self):
         self.feature_names = [
-            "requests_per_sec", "unique_ips_ratio", "ua_entropy",
-            "post_ratio", "error_rate", "avg_inter_arrival_ms"
+            "requests_per_sec",
+            "unique_ips_ratio",
+            "ua_entropy",
+            "post_ratio",
+            "error_rate",
+            "avg_inter_arrival_ms",
         ]
         self.models: Dict[str, object] = {}
         self.scalers: Dict[str, object] = {}
@@ -37,7 +41,7 @@ class BotTrafficPredictor:
             "ua_entropy": 3.5,
             "post_ratio": 0.2,
             "error_rate": 0.03,
-            "avg_inter_arrival_ms": 1000.0
+            "avg_inter_arrival_ms": 1000.0,
         }
         vec = [features.get(f, defaults[f]) for f in self.feature_names]
         return np.array([vec])
@@ -59,14 +63,20 @@ class BotTrafficPredictor:
         model = self.models["isolation_forest"]
         score = model.decision_function(X_scaled)[0]
         prob = 1.0 / (1.0 + np.exp(score * 8))
-        return self._format_result(probability=prob, model_used="isolation_forest", raw_score=score)
+        return self._format_result(
+            probability=prob, model_used="isolation_forest", raw_score=score
+        )
 
     def _process_gradient_boosting(self, X_scaled: np.ndarray) -> Dict:
         model = self.models["gradient_boosting"]
         prob = float(model.predict_proba(X_scaled)[0][1])
-        return self._format_result(probability=prob, model_used="gradient_boosting", raw_score=prob)
+        return self._format_result(
+            probability=prob, model_used="gradient_boosting", raw_score=prob
+        )
 
-    def _format_result(self, probability: float, model_used: str, raw_score: float) -> Dict:
+    def _format_result(
+        self, probability: float, model_used: str, raw_score: float
+    ) -> Dict:
         is_bot = probability > 0.65
         if probability < 0.4:
             risk = "low"
@@ -79,7 +89,7 @@ class BotTrafficPredictor:
             "bot_probability": round(float(probability), 4),
             "risk_level": risk,
             "raw_score": round(float(raw_score), 4),
-            "model_used": model_used
+            "model_used": model_used,
         }
 
 

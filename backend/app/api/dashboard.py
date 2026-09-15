@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 def get_dashboard_stats(
     request: Request,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Общая статистика для дашборда.
@@ -56,7 +56,9 @@ def get_dashboard_stats(
     # Средняя вероятность бота
     avg_bot_prob = 0.0
     if last_hour_stats:
-        probs = [l.bot_probability for l in last_hour_stats if l.bot_probability is not None]
+        probs = [
+            l.bot_probability for l in last_hour_stats if l.bot_probability is not None
+        ]
         if probs:
             avg_bot_prob = sum(probs) / len(probs)
 
@@ -86,7 +88,7 @@ def get_recent_logs(
     request: Request,
     limit: int = 20,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Последние логи запросов с ML-анализом"""
     if limit > 100:
@@ -117,7 +119,7 @@ def get_recent_logs(
 def get_active_threats(
     request: Request,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Список активных угроз (заблокированные IP + последние обнаруженные боты)"""
     now = datetime.utcnow()
@@ -136,10 +138,13 @@ def get_active_threats(
     ]
 
     # 2. Последние обнаруженные боты из БД
-    recent_bots = db.query(RequestLog).filter(
-        RequestLog.is_bot == True,
-        RequestLog.timestamp >= last_hour
-    ).order_by(desc(RequestLog.timestamp)).limit(10).all()
+    recent_bots = (
+        db.query(RequestLog)
+        .filter(RequestLog.is_bot == True, RequestLog.timestamp >= last_hour)
+        .order_by(desc(RequestLog.timestamp))
+        .limit(10)
+        .all()
+    )
 
     bot_threats = [
         {
@@ -165,7 +170,7 @@ def get_traffic_chart(
     request: Request,
     hours: int = 6,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Данные для графика трафика по часам.
@@ -205,10 +210,7 @@ def get_traffic_chart(
 
 @router.get("/ml-health")
 @limiter.limit("60/minute")
-def get_ml_health(
-    request: Request,
-    user: User = Depends(get_current_user)
-):
+def get_ml_health(request: Request, user: User = Depends(get_current_user)):
     """Состояние ML-системы"""
     return {
         "status": "ok",

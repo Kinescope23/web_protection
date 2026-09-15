@@ -38,16 +38,14 @@ GLOBAL_RULES = {
     "block_ips": [],
     "rate_limit_rps": 100,
     "ml_threshold": 0.3,  # СНИЖЕН ДО 0.0 ДЛЯ ГАРАНТИРОВАННОГО СРАБАТЫВАНИЯ НА СИМУЛЯЦИИ
-    "updated_at": datetime.utcnow().isoformat()
+    "updated_at": datetime.utcnow().isoformat(),
 }
 
 
 @router.post("/metrics")
 @limiter.limit("120/minute")
 async def receive_aggregated_metrics(
-        request: Request,
-        windows: List[MetricWindow],
-        db: Session = Depends(get_db)
+    request: Request, windows: List[MetricWindow], db: Session = Depends(get_db)
 ):
     logger.info("=== НАЧАЛО ОБРАБОТКИ МЕТРИК ===")
     logger.info(f"Получено окон для анализа: {len(windows)}")
@@ -56,7 +54,8 @@ async def receive_aggregated_metrics(
     for idx, window in enumerate(windows):
         logger.info(f"--- Обработка окна {idx + 1} ---")
         logger.info(
-            f"Данные: requests={window.total_requests}, suspicious_ratio={window.suspicious_ua_ratio}, error_rate={window.error_rate}")
+            f"Данные: requests={window.total_requests}, suspicious_ratio={window.suspicious_ua_ratio}, error_rate={window.error_rate}"
+        )
 
         # 1. Сохранение в БД
         try:
@@ -68,7 +67,7 @@ async def receive_aggregated_metrics(
                 status_code=200,
                 verdict="pending_ml",
                 latency_ms=0,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.utcnow(),
             )
             db.add(log)
             logger.info("Лог успешно добавлен в сессию БД.")
@@ -104,7 +103,9 @@ async def receive_aggregated_metrics(
                 new_blocked_ips.append(fake_attacker_ip)
                 GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
                 log.verdict = "blocked"
-                logger.info(f"УСПЕХ: IP {fake_attacker_ip} добавлен в список блокировки!")
+                logger.info(
+                    f"УСПЕХ: IP {fake_attacker_ip} добавлен в список блокировки!"
+                )
             else:
                 logger.info(f"IP {fake_attacker_ip} уже в списке блокировки.")
         else:
@@ -121,7 +122,7 @@ async def receive_aggregated_metrics(
         "status": "processed",
         "windows_received": len(windows),
         "new_rules_generated": len(new_blocked_ips) > 0,
-        "ml_model_loaded": predictor.model is not None
+        "ml_model_loaded": predictor.model is not None,
     }
     logger.info(f"=== КОНЕЦ ОБРАБОТКИ. Ответ API: {response_data} ===")
     return response_data
@@ -147,7 +148,7 @@ async def simulate_attack(request: Request, db: Session = Depends(get_db)):
         suspicious_ua_ratio=0.9,
         errors_count=3000,
         error_rate=0.6,
-        avg_payload_size=100
+        avg_payload_size=100,
     )
     logger.info(f"Сформированы тестовые данные атаки: {attack_window.dict()}")
     return await receive_aggregated_metrics(request, [attack_window], db)

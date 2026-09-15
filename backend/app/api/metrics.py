@@ -43,16 +43,14 @@ GLOBAL_RULES = {
     "rate_limit_rps": 100,
     "ml_threshold": 0.65,  # Порог вероятности бота (совпадает с predictor)
     "ml_model": "isolation_forest",  # Активная модель
-    "updated_at": datetime.utcnow().isoformat()
+    "updated_at": datetime.utcnow().isoformat(),
 }
 
 
 @router.post("/metrics")
 @limiter.limit("120/minute")
 async def receive_aggregated_metrics(
-    request: Request,
-    windows: List[MetricWindow],
-    db: Session = Depends(get_db)
+    request: Request, windows: List[MetricWindow], db: Session = Depends(get_db)
 ):
     """
     Принимает агрегированные метрики от агента (окно 30 сек).
@@ -95,14 +93,16 @@ async def receive_aggregated_metrics(
             risk_level=risk_level,
             ml_model_used=active_model,
             is_bot=is_bot,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
         )
         db.add(log)
         processed_count += 1
 
         # 4. Если обнаружена атака — блокируем IP
         if is_attack:
-            fake_attacker_ip = f"10.0.{hash(window.agent_id) % 255}.{window.total_requests % 255}"
+            fake_attacker_ip = (
+                f"10.0.{hash(window.agent_id) % 255}.{window.total_requests % 255}"
+            )
             if fake_attacker_ip not in GLOBAL_RULES["block_ips"]:
                 GLOBAL_RULES["block_ips"].append(fake_attacker_ip)
                 if len(GLOBAL_RULES["block_ips"]) > 100:
@@ -110,8 +110,10 @@ async def receive_aggregated_metrics(
                 new_blocked_ips.append(fake_attacker_ip)
                 GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
 
-        print(f"[ML] Анализ: agent={window.agent_id}, model={active_model}, "
-              f"bot_prob={bot_probability:.3f}, risk={risk_level}, is_attack={is_attack}")
+        print(
+            f"[ML] Анализ: agent={window.agent_id}, model={active_model}, "
+            f"bot_prob={bot_probability:.3f}, risk={risk_level}, is_attack={is_attack}"
+        )
 
     db.commit()
 
@@ -121,7 +123,7 @@ async def receive_aggregated_metrics(
         "processed_count": processed_count,
         "new_rules_generated": len(new_blocked_ips) > 0,
         "models_loaded": list(predictor.models.keys()),
-        "active_model": active_model
+        "active_model": active_model,
     }
 
 
@@ -151,7 +153,7 @@ async def simulate_attack(request: Request, db: Session = Depends(get_db)):
         requests_per_sec=150.0,
         ua_entropy=1.0,
         post_ratio=0.8,
-        avg_inter_arrival_ms=50.0
+        avg_inter_arrival_ms=50.0,
     )
     return await receive_aggregated_metrics(request, [attack_window], db)
 
@@ -163,5 +165,5 @@ def agent_health():
         "models_loaded": list(predictor.models.keys()),
         "active_blocked_ips": len(GLOBAL_RULES["block_ips"]),
         "ml_threshold": GLOBAL_RULES["ml_threshold"],
-        "active_model": GLOBAL_RULES["ml_model"]
+        "active_model": GLOBAL_RULES["ml_model"],
     }

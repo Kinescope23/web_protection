@@ -18,9 +18,9 @@ def get_uuid7() -> str:
     # 3. Собираем 128-битное число
     # [48 бит timestamp][4 бит version=7][12 бит rand_a][2 бит variant=10][62 бит rand_b]
     uuid_int = (
-            (timestamp_ms & 0xFFFFFFFFFFFF) << 80 |
-            (0x7 << 76) |
-            (rand_int & 0xFFFFFFFFFFFFFFFFFFFF)
+        (timestamp_ms & 0xFFFFFFFFFFFF) << 80
+        | (0x7 << 76)
+        | (rand_int & 0xFFFFFFFFFFFFFFFFFFFF)
     )
 
     # 4. Устанавливаем variant bits (10xx в двоичной, что дает 8, 9, a или b в hex)

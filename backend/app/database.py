@@ -6,6 +6,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://np_user:np_pass@db:5432/n
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+
 def get_db():
     db = SessionLocal()
     try:

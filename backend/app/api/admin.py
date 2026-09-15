@@ -15,20 +15,14 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     """Проверяет, что текущий пользователь является администратором"""
     if not user or user.role != "admin":
         raise HTTPException(
-            status_code=403,
-            detail="Доступ запрещен. Требуются права администратора."
+            status_code=403, detail="Доступ запрещен. Требуются права администратора."
         )
     return user
 
 
 def log_audit(db: Session, user_id: int, action: str, details: str, ip: str):
     """Логирование действий администратора"""
-    audit = AuditLog(
-        user_id=user_id,
-        action=action,
-        details=details,
-        ip_address=ip
-    )
+    audit = AuditLog(user_id=user_id, action=action, details=details, ip_address=ip)
     db.add(audit)
     db.commit()
 
@@ -37,24 +31,22 @@ def log_audit(db: Session, user_id: int, action: str, details: str, ip: str):
 def generate_invite_key(
     request: Request,
     admin: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Генерация уникального ключа приглашения для регистрации нового пользователя.
     """
     new_key = f"NP-{secrets.token_urlsafe(16).upper()}"
 
-    invite = InvitationKey(
-        key=new_key,
-        created_by=admin.id,
-        is_used=False
-    )
+    invite = InvitationKey(key=new_key, created_by=admin.id, is_used=False)
     db.add(invite)
 
     log_audit(
-        db, admin.id, "GENERATE_INVITE",
+        db,
+        admin.id,
+        "GENERATE_INVITE",
         f"Создан ключ регистрации: {new_key}",
-        request.client.host
+        request.client.host,
     )
     db.commit()
 
@@ -63,19 +55,22 @@ def generate_invite_key(
 
 @router.get("/invitation-keys")
 def get_invitation_keys(
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-    limit: int = 50
+    admin: User = Depends(require_admin), db: Session = Depends(get_db), limit: int = 50
 ):
     """Получить список всех ключей приглашения"""
-    keys = db.query(InvitationKey).order_by(InvitationKey.created_at.desc()).limit(limit).all()
+    keys = (
+        db.query(InvitationKey)
+        .order_by(InvitationKey.created_at.desc())
+        .limit(limit)
+        .all()
+    )
     return [
         {
             "id": key.id,
             "key": key.key,
             "is_used": key.is_used,
             "created_at": key.created_at.isoformat(),
-            "created_by": key.created_by
+            "created_by": key.created_by,
         }
         for key in keys
     ]
@@ -86,7 +81,7 @@ def update_ml_settings(
     request: Request,
     threshold: float,
     admin: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Обновление порога чувствительности ML-модели.
@@ -100,9 +95,11 @@ def update_ml_settings(
     GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
 
     log_audit(
-        db, admin.id, "UPDATE_ML_SETTINGS",
+        db,
+        admin.id,
+        "UPDATE_ML_SETTINGS",
         f"Изменен порог ML-анализа с {old_threshold} на {threshold}",
-        request.client.host
+        request.client.host,
     )
 
     return {"message": "Настройки ML обновлены", "new_threshold": threshold}
@@ -110,9 +107,7 @@ def update_ml_settings(
 
 @router.get("/audit-logs")
 def get_audit_logs(
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-    limit: int = 50
+    admin: User = Depends(require_admin), db: Session = Depends(get_db), limit: int = 50
 ):
     """Получить список последних действий администраторов"""
     logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).all()
@@ -123,7 +118,7 @@ def get_audit_logs(
             "action": log.action,
             "details": log.details,
             "ip_address": log.ip_address,
-            "timestamp": log.timestamp.isoformat()
+            "timestamp": log.timestamp.isoformat(),
         }
         for log in logs
     ]
@@ -131,16 +126,17 @@ def get_audit_logs(
 
 @router.get("/stats")
 def get_system_stats(
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db)
+    admin: User = Depends(require_admin), db: Session = Depends(get_db)
 ):
     """Получение общей статистики системы для дашборда администратора"""
     total_users = db.query(User).count()
-    active_invites = db.query(InvitationKey).filter(InvitationKey.is_used == False).count()
+    active_invites = (
+        db.query(InvitationKey).filter(InvitationKey.is_used == False).count()
+    )
 
     return {
         "total_users": total_users,
         "active_invitation_keys": active_invites,
         "current_ml_threshold": GLOBAL_RULES["ml_threshold"],
-        "currently_blocked_ips": len(GLOBAL_RULES["block_ips"])
+        "currently_blocked_ips": len(GLOBAL_RULES["block_ips"]),
     }

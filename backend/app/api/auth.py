@@ -69,28 +69,33 @@ def register(request: Request, data: UserRegister, db: Session = Depends(get_db)
         if MASTER_INVITE_MAX_USES != -1 and _master_key_uses >= MASTER_INVITE_MAX_USES:
             raise HTTPException(
                 403,
-                f"Мастер-ключ достиг лимита использований ({MASTER_INVITE_MAX_USES})"
+                f"Мастер-ключ достиг лимита использований ({MASTER_INVITE_MAX_USES})",
             )
         role = "admin"
         is_master_key = True
     else:
         # Обычный одноразовый ключ из БД
-        invite = db.query(InvitationKey).filter(
-            InvitationKey.key == data.invitation_key,
-            InvitationKey.is_used == False
-        ).first()
+        invite = (
+            db.query(InvitationKey)
+            .filter(
+                InvitationKey.key == data.invitation_key, InvitationKey.is_used == False
+            )
+            .first()
+        )
 
         if not invite:
             raise HTTPException(
                 403,
                 "Недействительный или уже использованный ключ регистрации. "
-                "Получите ключ у администратора."
+                "Получите ключ у администратора.",
             )
 
     # 2. Проверка уникальности email и username
-    if db.query(User).filter(
-        or_(User.email == data.email, User.username == data.username)
-    ).first():
+    if (
+        db.query(User)
+        .filter(or_(User.email == data.email, User.username == data.username))
+        .first()
+    ):
         raise HTTPException(400, "Email или username уже заняты")
 
     # 3. Создание пользователя
@@ -126,7 +131,9 @@ def login(request: Request, data: UserLogin, db: Session = Depends(get_db)):
 
     # Проверка 2FA
     if user.is_2fa_enabled:
-        if not data.totp_code or not pyotp.TOTP(user.totp_secret).verify(data.totp_code):
+        if not data.totp_code or not pyotp.TOTP(user.totp_secret).verify(
+            data.totp_code
+        ):
             raise HTTPException(401, "Неверный код 2FA")
 
     session_id = str(uuid.uuid4())
@@ -160,7 +167,9 @@ async def oauth_login(provider: str, request: Request):
 
 # === OAuth: callback от провайдера ===
 @router.get("/oauth/{provider}/callback")
-async def oauth_callback(provider: str, request: Request, db: Session = Depends(get_db)):
+async def oauth_callback(
+    provider: str, request: Request, db: Session = Depends(get_db)
+):
     """Обработка callback от провайдера OAuth"""
     try:
         token = await getattr(oauth, provider).authorize_access_token(request)
@@ -181,7 +190,11 @@ async def oauth_callback(provider: str, request: Request, db: Session = Depends(
                 resp = await getattr(oauth, provider).get("user/emails", token=token)
                 emails = resp.json()
                 primary_email = next((e for e in emails if e.get("primary")), None)
-                email = primary_email.get("email") if primary_email else f"{username}@github.local"
+                email = (
+                    primary_email.get("email")
+                    if primary_email
+                    else f"{username}@github.local"
+                )
 
         if not email:
             raise HTTPException(400, "Не удалось получить email от провайдера")
@@ -213,7 +226,9 @@ async def oauth_callback(provider: str, request: Request, db: Session = Depends(
         db.add(session)
         db.commit()
 
-        access_token = create_access_token({"sub": str(user.id), "session_id": session_id})
+        access_token = create_access_token(
+            {"sub": str(user.id), "session_id": session_id}
+        )
 
         # Перенаправляем на фронтенд с токеном в URL
         frontend_url = os.getenv("FRONTEND_URL", "https://localhost")
