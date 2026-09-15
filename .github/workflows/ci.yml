@@ -78,11 +78,11 @@ jobs:
     
       - name: Generate dummy SSL certificates for CI
         run: |
-          mkdir -p ssl
+          mkdir -p nginx/ssl
           bash generate_cert.sh
           openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-            -keyout ssl/privkey.pem \
-            -out ssl/fullchain.pem \
+            -keyout nginx/ssl/privkey.pem \
+            -out nginx/ssl/fullchain.pem \
             -subj "/CN=localhost"
           
       - name: Build Docker images
