@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User, InvitationKey, AuditLog
+from app.api.deps import get_current_user
 from app.api.metrics import GLOBAL_RULES
-from app.core.security import hash_password  # Если понадобится сброс пароля
 import secrets
 from datetime import datetime
 
@@ -11,14 +11,18 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
 
 # === Зависимость для проверки роли администратора ===
-def require_admin(user: User = Depends(lambda: None)):  # Замените lambda на реальный get_current_user из deps.py
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Проверяет, что текущий пользователь является администратором"""
     if not user or user.role != "admin":
-        raise HTTPException(status_code=403, detail="Доступ запрещен. Требуются права администратора.")
+        raise HTTPException(
+            status_code=403,
+            detail="Доступ запрещен. Требуются права администратора."
+        )
     return user
 
 
 def log_audit(db: Session, user_id: int, action: str, details: str, ip: str):
-    """Вспомогательная функция для логирования действий (ТРЕБОВАНИЕ: Все действия пользователя логируются)"""
+    """Логирование действий администратора"""
     audit = AuditLog(
         user_id=user_id,
         action=action,
@@ -31,13 +35,12 @@ def log_audit(db: Session, user_id: int, action: str, details: str, ip: str):
 
 @router.post("/generate-invite")
 def generate_invite_key(
-        request: Request,
-        admin: User = Depends(require_admin),
-        db: Session = Depends(get_db)
+    request: Request,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
 ):
     """
-    ТРЕБОВАНИЕ: Регистрация новых пользователей происходит по уникальному ключу,
-    указанному администратором.
+    Генерация уникального ключа приглашения для регистрации нового пользователя.
     """
     new_key = f"NP-{secrets.token_urlsafe(16).upper()}"
 
@@ -48,22 +51,46 @@ def generate_invite_key(
     )
     db.add(invite)
 
-    log_audit(db, admin.id, "GENERATE_INVITE", f"Создан ключ регистрации: {new_key}", request.client.host)
+    log_audit(
+        db, admin.id, "GENERATE_INVITE",
+        f"Создан ключ регистрации: {new_key}",
+        request.client.host
+    )
     db.commit()
 
     return {"invitation_key": new_key, "message": "Ключ успешно создан"}
 
 
+@router.get("/invitation-keys")
+def get_invitation_keys(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    limit: int = 50
+):
+    """Получить список всех ключей приглашения"""
+    keys = db.query(InvitationKey).order_by(InvitationKey.created_at.desc()).limit(limit).all()
+    return [
+        {
+            "id": key.id,
+            "key": key.key,
+            "is_used": key.is_used,
+            "created_at": key.created_at.isoformat(),
+            "created_by": key.created_by
+        }
+        for key in keys
+    ]
+
+
 @router.post("/ml-settings")
 def update_ml_settings(
-        request: Request,
-        threshold: float,
-        admin: User = Depends(require_admin),
-        db: Session = Depends(get_db)
+    request: Request,
+    threshold: float,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
 ):
     """
-    ТРЕБОВАНИЕ: Настройки ML-модели (порог чувствительности) вынесены в расширенный режим
-    и доступны только администраторам.
+    Обновление порога чувствительности ML-модели.
+    Доступно только администраторам.
     """
     if not (0.0 <= threshold <= 1.0):
         raise HTTPException(400, "Порог чувствительности должен быть от 0.0 до 1.0")
@@ -83,13 +110,11 @@ def update_ml_settings(
 
 @router.get("/audit-logs")
 def get_audit_logs(
-        admin: User = Depends(require_admin),
-        db: Session = Depends(get_db),
-        limit: int = 50
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    limit: int = 50
 ):
-    """
-    ТРЕБОВАНИЕ: Все действия пользователя логируются.
-    """
+    """Получить список последних действий администраторов"""
     logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).all()
     return [
         {
@@ -106,10 +131,10 @@ def get_audit_logs(
 
 @router.get("/stats")
 def get_system_stats(
-        admin: User = Depends(require_admin),
-        db: Session = Depends(get_db)
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
 ):
-    """Получение общей статистики для дашборда администратора"""
+    """Получение общей статистики системы для дашборда администратора"""
     total_users = db.query(User).count()
     active_invites = db.query(InvitationKey).filter(InvitationKey.is_used == False).count()
 

@@ -1,3 +1,3 @@
-from app.ml.predictor import predictor, MLPredictor
+from app.ml.predictor import predictor, BotTrafficPredictor
 
-__all__ = ["predictor", "MLPredictor"]
+__all__ = ["predictor", "BotTrafficPredictor"]

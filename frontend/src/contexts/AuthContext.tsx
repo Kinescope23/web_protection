@@ -34,6 +34,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true) // <-- ДОБАВЛЕНО
 
   useEffect(() => {
+    // === Обработка токена из URL после OAuth callback ===
+    const urlParams = new URLSearchParams(window.location.search)
+    const tokenFromUrl = urlParams.get('token')
+
+    if (tokenFromUrl) {
+      // Сохраняем токен в localStorage
+      localStorage.setItem('token', tokenFromUrl)
+      // Убираем токен из URL, чтобы он не мелькал в адресной строке
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+
     const token = localStorage.getItem('token')
     if (token) {
       api.get('/users/me')

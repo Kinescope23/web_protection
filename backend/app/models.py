@@ -1,4 +1,4 @@
-from sqlalchemy import Column, BigInteger, String, Boolean, Text, DateTime, ForeignKey, Integer
+from sqlalchemy import Column, BigInteger, String, Boolean, Text, DateTime, ForeignKey, Integer, Float
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
@@ -56,6 +56,7 @@ class AuditLog(Base):
     ip_address = Column(String(45))
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
 
+
 class RequestLog(Base):
     __tablename__ = "request_logs"
     id = Column(BigInteger, primary_key=True)
@@ -64,6 +65,13 @@ class RequestLog(Base):
     method = Column(String(16), nullable=False)
     path = Column(String(255), nullable=False)
     status_code = Column(Integer, nullable=False)
-    verdict = Column(String(16), nullable=False)
+    verdict = Column(String(16), nullable=False)  # allowed / blocked
     latency_ms = Column(Integer, nullable=False)
+
+    # Новые поля для ML-анализа
+    bot_probability = Column(Float, nullable=True)
+    risk_level = Column(String(16), nullable=True)  # low / medium / high
+    ml_model_used = Column(String(64), nullable=True)
+    is_bot = Column(Boolean, nullable=True)
+
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
