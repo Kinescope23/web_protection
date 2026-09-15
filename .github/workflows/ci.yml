@@ -75,11 +75,22 @@ jobs:
     needs: lint-and-test
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Build Docker images
+    
+      - name: Generate dummy SSL certificates for CI
         run: |
-          docker compose build
-      
+          mkdir -p ssl
+          openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout ssl/privkey.pem \
+            -out ssl/fullchain.pem \
+            -subj "/CN=localhost"
+          
+      - name: Build Docker images
+        run: docker compose build
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GITHUB_CLIENT_ID: ${{ secrets._GITHUB_CLIENT_ID }}
+          GITHUB_CLIENT_SECRET: ${{ secrets._GITHUB_CLIENT_SECRET }}
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
