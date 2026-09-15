@@ -74,6 +74,8 @@ services:
       - frontend
     networks:
       - backend
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
 
 volumes:
   pgdata:
