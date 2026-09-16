@@ -27,11 +27,14 @@ def get_me(user: User = Depends(get_current_user)):
 class ChangePasswordRequest:
     pass
 
+
 from pydantic import BaseModel, Field
+
 
 class ChangePassword(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8)
+
 
 @router.post("/me/password")
 @limiter.limit("5/hour")
@@ -39,7 +42,7 @@ def change_password(
     request: Request,
     data: ChangePassword,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Смена пароля с обязательной проверкой текущего пароля.
@@ -56,8 +59,7 @@ def change_password(
     current_session_id = request.headers.get("x-session-id")
     if current_session_id:
         db.query(SessionModel).filter(
-            SessionModel.user_id == user.id,
-            SessionModel.id != current_session_id
+            SessionModel.user_id == user.id, SessionModel.id != current_session_id
         ).update({"is_active": False})
 
     db.commit()
@@ -67,16 +69,18 @@ def change_password(
 
 # === Список активных сессий ===
 @router.get("/me/sessions")
-def get_sessions(
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+def get_sessions(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Получить список активных сессий пользователя"""
-    sessions = db.query(SessionModel).filter(
-        SessionModel.user_id == user.id,
-        SessionModel.is_active == True,
-        SessionModel.expires_at > datetime.utcnow()
-    ).order_by(SessionModel.created_at.desc()).all()
+    sessions = (
+        db.query(SessionModel)
+        .filter(
+            SessionModel.user_id == user.id,
+            SessionModel.is_active == True,
+            SessionModel.expires_at > datetime.utcnow(),
+        )
+        .order_by(SessionModel.created_at.desc())
+        .all()
+    )
 
     return [
         {
@@ -85,7 +89,7 @@ def get_sessions(
             "user_agent": s.user_agent,
             "created_at": s.created_at.isoformat() if s.created_at else None,
             "expires_at": s.expires_at.isoformat() if s.expires_at else None,
-            "is_current": False  # Будет обновлено ниже
+            "is_current": False,  # Будет обновлено ниже
         }
         for s in sessions
     ]
@@ -96,13 +100,14 @@ def get_sessions(
 def revoke_session(
     session_id: str,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Завершить конкретную сессию"""
-    session = db.query(SessionModel).filter(
-        SessionModel.id == session_id,
-        SessionModel.user_id == user.id
-    ).first()
+    session = (
+        db.query(SessionModel)
+        .filter(SessionModel.id == session_id, SessionModel.user_id == user.id)
+        .first()
+    )
 
     if not session:
         raise HTTPException(404, "Сессия не найдена")
@@ -118,14 +123,13 @@ def revoke_session(
 def revoke_all_sessions(
     request: Request,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Завершить все сессии кроме текущей"""
     current_session_id = request.headers.get("x-session-id")
 
     query = db.query(SessionModel).filter(
-        SessionModel.user_id == user.id,
-        SessionModel.is_active == True
+        SessionModel.user_id == user.id, SessionModel.is_active == True
     )
 
     if current_session_id:
@@ -144,29 +148,35 @@ os.makedirs(AVATARS_DIR, exist_ok=True)
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 MAX_SIZE = 5 * 1024 * 1024  # 5 МБ
 
+
 @router.post("/me/avatar")
 @limiter.limit("10/hour")
 async def upload_avatar(
     request: Request,
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Загрузка аватара пользователя"""
     # Валидация типа
     if file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(415, f"Неподдерживаемый тип файла. Разрешены: {', '.join(ALLOWED_TYPES)}")
+        raise HTTPException(
+            415, f"Неподдерживаемый тип файла. Разрешены: {', '.join(ALLOWED_TYPES)}"
+        )
 
     # Читаем содержимое
     content = await file.read()
 
     # Валидация размера
     if len(content) > MAX_SIZE:
-        raise HTTPException(413, f"Файл слишком большой. Максимум: {MAX_SIZE // (1024*1024)} МБ")
+        raise HTTPException(
+            413, f"Файл слишком большой. Максимум: {MAX_SIZE // (1024*1024)} МБ"
+        )
 
     # Валидация через PIL (защита от подмены расширения)
     try:
         from io import BytesIO
+
         img = Image.open(BytesIO(content))
         img.verify()
     except Exception:
@@ -196,10 +206,7 @@ async def upload_avatar(
     db.commit()
     db.refresh(user)
 
-    return {
-        "message": "Аватар успешно загружен",
-        "avatar_url": user.avatar_url
-    }
+    return {"message": "Аватар успешно загружен", "avatar_url": user.avatar_url}
 
 
 # === Получение аватара ===

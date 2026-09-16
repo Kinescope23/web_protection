@@ -41,14 +41,16 @@ def init_upload(
     request: Request,
     data: InitUploadRequest,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Инициализация загрузки большого файла.
     Возвращает upload_id и информацию о том, как разбить файл на чанки.
     """
     if data.total_size > MAX_FILE_SIZE:
-        raise HTTPException(413, f"Файл слишком большой. Максимум: {MAX_FILE_SIZE // (1024**3)} ГБ")
+        raise HTTPException(
+            413, f"Файл слишком большой. Максимум: {MAX_FILE_SIZE // (1024**3)} ГБ"
+        )
 
     if data.total_size <= 0:
         raise HTTPException(400, "Размер файла должен быть больше 0")
@@ -65,7 +67,7 @@ def init_upload(
         total_chunks=total_chunks,
         uploaded_chunks=0,
         checksum=data.checksum,
-        status="in_progress"
+        status="in_progress",
     )
     db.add(upload)
     db.commit()
@@ -74,9 +76,7 @@ def init_upload(
     os.makedirs(os.path.join(TMP_DIR, upload_id), exist_ok=True)
 
     return InitUploadResponse(
-        upload_id=upload_id,
-        chunk_size=CHUNK_SIZE,
-        total_chunks=total_chunks
+        upload_id=upload_id, chunk_size=CHUNK_SIZE, total_chunks=total_chunks
     )
 
 
@@ -88,7 +88,7 @@ async def upload_chunk(
     chunk_index: int = Form(...),
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Загрузка одного чанка файла.
@@ -102,15 +102,22 @@ async def upload_chunk(
         raise HTTPException(400, f"Загрузка в статусе '{upload.status}'")
 
     if chunk_index < 0 or chunk_index >= upload.total_chunks:
-        raise HTTPException(400, f"Неверный индекс чанка. Допустимо: 0-{upload.total_chunks - 1}")
+        raise HTTPException(
+            400, f"Неверный индекс чанка. Допустимо: 0-{upload.total_chunks - 1}"
+        )
 
     # Читаем содержимое чанка
     content = await file.read()
-    expected_size = CHUNK_SIZE if chunk_index < upload.total_chunks - 1 else (
-        upload.total_size - (upload.total_chunks - 1) * CHUNK_SIZE
+    expected_size = (
+        CHUNK_SIZE
+        if chunk_index < upload.total_chunks - 1
+        else (upload.total_size - (upload.total_chunks - 1) * CHUNK_SIZE)
     )
     if len(content) != expected_size:
-        raise HTTPException(400, f"Неверный размер чанка. Ожидалось: {expected_size}, получено: {len(content)}")
+        raise HTTPException(
+            400,
+            f"Неверный размер чанка. Ожидалось: {expected_size}, получено: {len(content)}",
+        )
 
     # Сохраняем чанк
     chunk_path = os.path.join(TMP_DIR, upload_id, f"chunk_{chunk_index:06d}")
@@ -126,7 +133,7 @@ async def upload_chunk(
         "chunk_index": chunk_index,
         "uploaded_chunks": upload.uploaded_chunks,
         "total_chunks": upload.total_chunks,
-        "progress": round((upload.uploaded_chunks / upload.total_chunks) * 100, 2)
+        "progress": round((upload.uploaded_chunks / upload.total_chunks) * 100, 2),
     }
 
 
@@ -136,7 +143,7 @@ def complete_upload(
     request: Request,
     upload_id: str,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Завершение загрузки: сборка чанков в финальный файл и проверка SHA-256.
@@ -152,7 +159,7 @@ def complete_upload(
     if upload.uploaded_chunks != upload.total_chunks:
         raise HTTPException(
             400,
-            f"Не все чанки загружены. Загружено: {upload.uploaded_chunks}/{upload.total_chunks}"
+            f"Не все чанки загружены. Загружено: {upload.uploaded_chunks}/{upload.total_chunks}",
         )
 
     # Собираем финальный файл
@@ -187,11 +194,12 @@ def complete_upload(
         db.commit()
         raise HTTPException(
             400,
-            f"Контрольная сумма не совпадает. Ожидалось: {upload.checksum}, получено: {actual_checksum}"
+            f"Контрольная сумма не совпадает. Ожидалось: {upload.checksum}, получено: {actual_checksum}",
         )
 
     # Удаляем временные чанки
     import shutil
+
     try:
         shutil.rmtree(os.path.join(TMP_DIR, upload_id))
     except OSError:
@@ -208,7 +216,7 @@ def complete_upload(
         "filename": upload.filename,
         "size": upload.total_size,
         "checksum": actual_checksum,
-        "path": f"/uploads/final/{final_filename}"
+        "path": f"/uploads/final/{final_filename}",
     }
 
 
@@ -216,7 +224,7 @@ def complete_upload(
 def get_upload_status(
     upload_id: str,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """Получить статус загрузки"""
     upload = db.query(Upload).filter(Upload.id == upload_id).first()
@@ -231,9 +239,15 @@ def get_upload_status(
         "total_size": upload.total_size,
         "total_chunks": upload.total_chunks,
         "uploaded_chunks": upload.uploaded_chunks,
-        "progress": round((upload.uploaded_chunks / upload.total_chunks) * 100, 2) if upload.total_chunks > 0 else 0,
+        "progress": (
+            round((upload.uploaded_chunks / upload.total_chunks) * 100, 2)
+            if upload.total_chunks > 0
+            else 0
+        ),
         "status": upload.status,
         "checksum": upload.checksum,
         "created_at": upload.created_at.isoformat() if upload.created_at else None,
-        "completed_at": upload.completed_at.isoformat() if upload.completed_at else None
+        "completed_at": (
+            upload.completed_at.isoformat() if upload.completed_at else None
+        ),
     }

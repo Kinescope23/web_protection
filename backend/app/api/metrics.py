@@ -41,14 +41,18 @@ class RuleUpdate(BaseModel):
 GLOBAL_RULES = {
     "block_ips": [],
     "rate_limit_rps": 100,
-    "updated_at": datetime.utcnow().isoformat()
+    "updated_at": datetime.utcnow().isoformat(),
 }
 
 
 def get_user_ml_settings(db: Session, user_id: int) -> dict:
-    settings = db.query(UserMLSettings).filter(UserMLSettings.user_id == user_id).first()
+    settings = (
+        db.query(UserMLSettings).filter(UserMLSettings.user_id == user_id).first()
+    )
     if not settings:
-        settings = UserMLSettings(user_id=user_id, ml_model="isolation_forest", ml_threshold=0.65)
+        settings = UserMLSettings(
+            user_id=user_id, ml_model="isolation_forest", ml_threshold=0.65
+        )
         db.add(settings)
         db.commit()
         db.refresh(settings)
@@ -58,9 +62,7 @@ def get_user_ml_settings(db: Session, user_id: int) -> dict:
 @router.post("/metrics")
 @limiter.limit("120/minute")
 async def receive_aggregated_metrics(
-    request: Request,
-    windows: List[MetricWindow],
-    db: Session = Depends(get_db)
+    request: Request, windows: List[MetricWindow], db: Session = Depends(get_db)
 ):
     new_blocked_ips = []
 
@@ -70,8 +72,10 @@ async def receive_aggregated_metrics(
 
         # Если агент не зарегистрирован админом — пропускаем метрики
         if not agent:
-            print(f"[Agent] Агент '{window.agent_id}' не зарегистрирован. "
-                  f"Попросите администратора создать его в панели управления.")
+            print(
+                f"[Agent] Агент '{window.agent_id}' не зарегистрирован. "
+                f"Попросите администратора создать его в панели управления."
+            )
             continue
 
         # Обновляем last_seen
@@ -110,12 +114,14 @@ async def receive_aggregated_metrics(
             risk_level=risk_level,
             ml_model_used=active_model,
             is_bot=is_bot,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
         )
         db.add(log)
 
         if is_attack:
-            fake_ip = f"10.0.{hash(window.agent_id) % 255}.{window.total_requests % 255}"
+            fake_ip = (
+                f"10.0.{hash(window.agent_id) % 255}.{window.total_requests % 255}"
+            )
             if fake_ip not in GLOBAL_RULES["block_ips"]:
                 GLOBAL_RULES["block_ips"].append(fake_ip)
                 if len(GLOBAL_RULES["block_ips"]) > 100:
@@ -123,9 +129,11 @@ async def receive_aggregated_metrics(
                 new_blocked_ips.append(fake_ip)
                 GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
 
-        print(f"[ML] agent={window.agent_id}, user={agent.user_id}, "
-              f"model={active_model}, threshold={threshold}, "
-              f"bot_prob={bot_probability:.3f}, risk={risk_level}")
+        print(
+            f"[ML] agent={window.agent_id}, user={agent.user_id}, "
+            f"model={active_model}, threshold={threshold}, "
+            f"bot_prob={bot_probability:.3f}, risk={risk_level}"
+        )
 
         # Получаем per-user настройки ML
         user_settings = get_user_ml_settings(db, agent.user_id)
@@ -160,12 +168,14 @@ async def receive_aggregated_metrics(
             risk_level=risk_level,
             ml_model_used=active_model,
             is_bot=is_bot,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
         )
         db.add(log)
 
         if is_attack:
-            fake_ip = f"10.0.{hash(window.agent_id) % 255}.{window.total_requests % 255}"
+            fake_ip = (
+                f"10.0.{hash(window.agent_id) % 255}.{window.total_requests % 255}"
+            )
             if fake_ip not in GLOBAL_RULES["block_ips"]:
                 GLOBAL_RULES["block_ips"].append(fake_ip)
                 if len(GLOBAL_RULES["block_ips"]) > 100:
@@ -173,16 +183,18 @@ async def receive_aggregated_metrics(
                 new_blocked_ips.append(fake_ip)
                 GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
 
-        print(f"[ML] agent={window.agent_id}, user={agent.user_id}, "
-              f"model={active_model}, threshold={threshold}, "
-              f"bot_prob={bot_probability:.3f}, risk={risk_level}")
+        print(
+            f"[ML] agent={window.agent_id}, user={agent.user_id}, "
+            f"model={active_model}, threshold={threshold}, "
+            f"bot_prob={bot_probability:.3f}, risk={risk_level}"
+        )
 
     db.commit()
 
     return {
         "status": "processed",
         "windows_received": len(windows),
-        "new_rules_generated": len(new_blocked_ips) > 0
+        "new_rules_generated": len(new_blocked_ips) > 0,
     }
 
 
@@ -193,7 +205,7 @@ async def get_latest_rules(request: Request):
         "block_ips": GLOBAL_RULES["block_ips"],
         "rate_limit_rps": GLOBAL_RULES["rate_limit_rps"],
         "ml_threshold": 0.65,
-        "updated_at": GLOBAL_RULES["updated_at"]
+        "updated_at": GLOBAL_RULES["updated_at"],
     }
 
 
@@ -214,7 +226,7 @@ async def simulate_attack(request: Request, db: Session = Depends(get_db)):
         requests_per_sec=150.0,
         ua_entropy=1.0,
         post_ratio=0.8,
-        avg_inter_arrival_ms=50.0
+        avg_inter_arrival_ms=50.0,
     )
     return await receive_aggregated_metrics(request, [attack_window], db)
 
@@ -224,5 +236,5 @@ def agent_health():
     return {
         "status": "ok",
         "models_loaded": list(predictor.models.keys()),
-        "active_blocked_ips": len(GLOBAL_RULES["block_ips"])
+        "active_blocked_ips": len(GLOBAL_RULES["block_ips"]),
     }
