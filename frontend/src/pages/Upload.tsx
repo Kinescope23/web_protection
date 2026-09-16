@@ -56,7 +56,7 @@ export default function Upload() {
       completeForm.append('checksum', checksum)
       
       await api.post('/upload/complete', completeForm)
-      setStatus('✅ Загрузка успешно завершена!')
+      setStatus('Загрузка успешно завершена!')
       setProgress(100)
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Ошибка загрузки')

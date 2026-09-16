@@ -110,7 +110,7 @@ export default function Dashboard() {
       {/* Заголовок */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 25 }}>
         <div>
-          <h1 style={{ margin: 0, color: '#2c3e50' }}>🛡 Дашборд Net Protector</h1>
+          <h1 style={{ margin: 0, color: '#2c3e50' }}>Дашборд Net Protector</h1>
           <p style={{ margin: '5px 0 0', color: '#7f8c8d' }}>
             Добро пожаловать, <strong>{user?.username}</strong>
             <span style={{

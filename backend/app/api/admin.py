@@ -6,6 +6,7 @@ from app.api.deps import get_current_user
 from app.api.metrics import GLOBAL_RULES
 import secrets
 from datetime import datetime
+from app.ml import predictor
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -123,6 +124,64 @@ def get_audit_logs(
         for log in logs
     ]
 
+@router.get("/ml-models")
+def get_available_models(
+    admin: User = Depends(require_admin)
+):
+    """Получить список доступных ML-моделей и их статус"""
+    available = list(predictor.AVAILABLE_MODELS)
+    loaded = list(predictor.models.keys())
+
+    return {
+        "available_models": available,
+        "loaded_models": loaded,
+        "active_model": GLOBAL_RULES["ml_model"],
+        "models_info": [
+            {
+                "name": name,
+                "status": "loaded" if name in loaded else "not_loaded",
+                "is_active": name == GLOBAL_RULES["ml_model"]
+            }
+            for name in available
+        ]
+    }
+
+
+@router.post("/ml-model/active")
+def set_active_model(
+    request: Request,
+    model_name: str,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Установить активную ML-модель"""
+    if model_name not in predictor.AVAILABLE_MODELS:
+        raise HTTPException(
+            400,
+            f"Неизвестная модель. Доступны: {', '.join(predictor.AVAILABLE_MODELS)}"
+        )
+
+    if model_name not in predictor.models:
+        raise HTTPException(
+            400,
+            f"Модель '{model_name}' не загружена на сервере"
+        )
+
+    old_model = GLOBAL_RULES["ml_model"]
+    GLOBAL_RULES["ml_model"] = model_name
+    GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
+
+    log_audit(
+        db, admin.id, "CHANGE_ML_MODEL",
+        f"Изменена активная ML-модель с '{old_model}' на '{model_name}'",
+        request.client.host
+    )
+
+    return {
+        "message": f"Активная модель изменена на '{model_name}'",
+        "previous_model": old_model,
+        "current_model": model_name
+    }
 
 @router.get("/stats")
 def get_system_stats(
@@ -139,4 +198,70 @@ def get_system_stats(
         "active_invitation_keys": active_invites,
         "current_ml_threshold": GLOBAL_RULES["ml_threshold"],
         "currently_blocked_ips": len(GLOBAL_RULES["block_ips"]),
+    }
+
+@router.get("/ml-models")
+def get_available_models(
+    admin: User = Depends(require_admin)
+):
+    """
+    Получить список доступных ML-моделей и их статус загрузки.
+    """
+    available = list(predictor.AVAILABLE_MODELS)
+    loaded = list(predictor.models.keys())
+
+    return {
+        "available_models": available,
+        "loaded_models": loaded,
+        "active_model": GLOBAL_RULES["ml_model"],
+        "models_info": [
+            {
+                "name": name,
+                "status": "loaded" if name in loaded else "not_loaded",
+                "is_active": name == GLOBAL_RULES["ml_model"]
+            }
+            for name in available
+        ]
+    }
+
+@router.post("/ml-model/active")
+def set_active_model(
+    request: Request,
+    model_name: str,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """
+    Установить активную ML-модель для анализа трафика.
+    Модель должна быть загружена на сервере.
+    """
+    # Валидация: модель должна быть в списке доступных
+    if model_name not in predictor.AVAILABLE_MODELS:
+        raise HTTPException(
+            400,
+            f"Неизвестная модель. Доступны: {', '.join(predictor.AVAILABLE_MODELS)}"
+        )
+
+    # Валидация: модель должна быть загружена
+    if model_name not in predictor.models:
+        raise HTTPException(
+            400,
+            f"Модель '{model_name}' не загружена на сервере. "
+            f"Загружены: {', '.join(predictor.models.keys()) or 'нет'}"
+        )
+
+    old_model = GLOBAL_RULES["ml_model"]
+    GLOBAL_RULES["ml_model"] = model_name
+    GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
+
+    log_audit(
+        db, admin.id, "CHANGE_ML_MODEL",
+        f"Изменена активная ML-модель с '{old_model}' на '{model_name}'",
+        request.client.host
+    )
+
+    return {
+        "message": f"Активная модель изменена на '{model_name}'",
+        "previous_model": old_model,
+        "current_model": model_name
     }

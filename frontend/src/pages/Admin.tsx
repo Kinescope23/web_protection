@@ -9,17 +9,25 @@ interface InvitationKey {
   created_by: number
 }
 
+interface MLModelInfo {
+  name: string
+  status: string
+  is_active: boolean
+}
+
 export default function Admin() {
   const [inviteKey, setInviteKey] = useState('')
   const [keys, setKeys] = useState<InvitationKey[]>([])
-  const [mlThreshold, setMlThreshold] = useState(0.3)
+  const [mlThreshold, setMlThreshold] = useState(0.65)
   const [stats, setStats] = useState<any>(null)
   const [message, setMessage] = useState('')
+  const [availableModels, setAvailableModels] = useState<MLModelInfo[]>([])
+  const [activeModel, setActiveModel] = useState('isolation_forest')
 
-  // Загрузка данных при монтировании
   useEffect(() => {
     fetchKeys()
     fetchStats()
+    fetchModels()
   }, [])
 
   const fetchKeys = async () => {
@@ -41,12 +49,22 @@ export default function Admin() {
     }
   }
 
+  const fetchModels = async () => {
+    try {
+      const res = await api.get('/admin/ml-models')
+      setAvailableModels(res.data.models_info || [])
+      setActiveModel(res.data.active_model || 'isolation_forest')
+    } catch (e) {
+      console.error('Ошибка загрузки моделей', e)
+    }
+  }
+
   const generateKey = async () => {
     try {
       const res = await api.post('/admin/generate-invite')
       setInviteKey(res.data.invitation_key)
       setMessage('Ключ успешно создан!')
-      fetchKeys() // Обновляем список
+      fetchKeys()
       setTimeout(() => setMessage(''), 3000)
     } catch (e) {
       setMessage('Ошибка создания ключа')
@@ -62,35 +80,50 @@ export default function Admin() {
 
   const saveMLSettings = async () => {
     try {
-      await api.post('/admin/ml-settings', null, { params: { threshold: mlThreshold } })
+      await api.post('/admin/ml-settings', null, { 
+        params: { threshold: mlThreshold } 
+      })
       setMessage('Настройки ML сохранены')
       setTimeout(() => setMessage(''), 3000)
-    } catch (e) {
-      setMessage('Ошибка сохранения настроек')
+    } catch (e: any) {
+      setMessage(e.response?.data?.detail || 'Ошибка сохранения настроек')
       console.error(e)
+    }
+  }
+
+  const changeActiveModel = async (modelName: string) => {
+    try {
+      const res = await api.post('/admin/ml-model/active', null, {
+        params: { model_name: modelName }
+      })
+      setMessage(res.data.message)
+      setActiveModel(modelName)
+      fetchModels()
+      setTimeout(() => setMessage(''), 3000)
+    } catch (e: any) {
+      setMessage(e.response?.data?.detail || 'Ошибка смены модели')
+      setTimeout(() => setMessage(''), 3000)
     }
   }
 
   return (
     <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
-      <h1 style={{ color: '#2c3e50', marginBottom: 30 }}>👑 Админ-панель</h1>
+      <h1 style={{ color: '#2c3e50', marginBottom: 30 }}>Админ-панель</h1>
 
-      {/* Сообщение */}
       {message && (
         <div style={{
           padding: 15,
           marginBottom: 20,
-          background: message.includes('✅') ? '#d1fae5' : '#fee2e2',
-          border: `1px solid ${message.includes('✅') ? '#6ee7b7' : '#fca5a5'}`,
+          background: message.includes('Ошибка') ? '#fee2e2' : '#d1fae5',
+          border: `1px solid ${message.includes('Ошибка') ? '#fca5a5' : '#6ee7b7'}`,
           borderRadius: 8,
-          color: message.includes('✅') ? '#065f46' : '#991b1b',
+          color: message.includes('Ошибка') ? '#991b1b' : '#065f46',
           fontWeight: 'bold'
         }}>
           {message}
         </div>
       )}
 
-      {/* Статистика */}
       {stats && (
         <div style={{
           display: 'grid',
@@ -120,7 +153,6 @@ export default function Admin() {
           Генерируйте ключи для регистрации новых пользователей. Каждый ключ можно использовать один раз.
         </p>
 
-        {/* Кнопка генерации */}
         <button
           onClick={generateKey}
           style={{
@@ -138,7 +170,6 @@ export default function Admin() {
           Сгенерировать новый ключ
         </button>
 
-        {/* Отображение нового ключа */}
         {inviteKey && (
           <div style={{
             background: '#f0f9ff',
@@ -190,8 +221,7 @@ export default function Admin() {
           </div>
         )}
 
-        {/* Список ключей */}
-        <h3 style={{ color: '#2c3e50', marginTop: 30 }}>📋 История ключей</h3>
+        <h3 style={{ color: '#2c3e50', marginTop: 30 }}>История ключей</h3>
         {keys.length === 0 ? (
           <p style={{ color: '#888', fontStyle: 'italic' }}>Ключи ещё не создавались.</p>
         ) : (
@@ -253,11 +283,44 @@ export default function Admin() {
 
       {/* Секция 2: Настройки ML */}
       <div style={{ background: '#fff', padding: 25, borderRadius: 8, border: '1px solid #ddd' }}>
-        <h2 style={{ marginTop: 0, color: '#2c3e50' }}>🧠 Настройки ML-модели</h2>
+        <h2 style={{ marginTop: 0, color: '#2c3e50' }}>Настройки ML-модели</h2>
         <p style={{ color: '#666', marginBottom: 20 }}>
           Порог чувствительности определяет, насколько агрессивно система блокирует подозрительный трафик.
+          Активная модель используется для анализа всех входящих окон метрик.
         </p>
 
+        {/* Выбор активной модели */}
+        <div style={{ marginBottom: 25, padding: 15, background: '#f8f9fa', borderRadius: 5 }}>
+          <label style={{ display: 'block', marginBottom: 10, fontWeight: 'bold' }}>
+            Активная модель для анализа трафика:
+          </label>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {availableModels.map((model) => (
+              <button
+                key={model.name}
+                onClick={() => changeActiveModel(model.name)}
+                disabled={model.status !== 'loaded' || model.is_active}
+                style={{
+                  padding: '10px 20px',
+                  background: model.is_active ? '#27ae60' : (model.status === 'loaded' ? '#667eea' : '#95a5a6'),
+                  color: 'white',
+                  border: model.is_active ? '2px solid #16a085' : '2px solid transparent',
+                  borderRadius: 5,
+                  cursor: (model.status === 'loaded' && !model.is_active) ? 'pointer' : 'not-allowed',
+                  fontWeight: model.is_active ? 'bold' : 'normal',
+                  fontSize: 14,
+                  opacity: model.status === 'loaded' ? 1 : 0.6
+                }}
+              >
+                {model.name.replace('_', ' ')}
+                {model.is_active && ' (активна)'}
+                {model.status !== 'loaded' && ' (не загружена)'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Порог чувствительности */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: 'block', marginBottom: 10, fontWeight: 'bold' }}>
             Порог чувствительности: <span style={{ color: '#667eea', fontSize: '1.2em' }}>{mlThreshold.toFixed(2)}</span>
@@ -290,7 +353,7 @@ export default function Admin() {
             fontWeight: 'bold'
           }}
         >
-          Сохранить настройки
+          Сохранить настройки порога
         </button>
       </div>
     </div>
