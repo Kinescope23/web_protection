@@ -5,7 +5,11 @@ from typing import Dict, List
 
 BASE_DIR = "/app/ml_models"
 
+
 class BotTrafficPredictor:
+    # Классовая константа — список ВСЕХ ВОЗМОЖНЫХ моделей
+    AVAILABLE_MODELS = ("isolation_forest", "gradient_boosting")
+
     def __init__(self):
         self.feature_names = [
             "requests_per_sec", "unique_ips_ratio", "ua_entropy",
@@ -38,6 +42,7 @@ class BotTrafficPredictor:
                 else:
                     print(f"[ML] {model_name} skipped (scaler not found)")
 
+    # Property — список ЗАГРУЖЕННЫХ моделей (для UI)
     @property
     def available_models(self) -> List[str]:
         return list(self.models.keys())
@@ -55,6 +60,8 @@ class BotTrafficPredictor:
         return np.array([vec])
 
     def predict(self, features: Dict, model_name: str) -> Dict:
+        if model_name not in self.AVAILABLE_MODELS:
+            return {"error": f"Model '{model_name}' not in AVAILABLE_MODELS. Available: {self.AVAILABLE_MODELS}"}
         if model_name not in self.models:
             return {"error": f"Model '{model_name}' is not loaded on server."}
 

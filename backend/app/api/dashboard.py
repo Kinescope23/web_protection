@@ -2,220 +2,212 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 from datetime import datetime, timedelta
-from typing import List
 
 from app.database import get_db
-from app.models import User, RequestLog, InvitationKey
+from app.models import User, RequestLog, Agent, UserMLSettings
 from app.api.deps import get_current_user
-from app.api.metrics import GLOBAL_RULES
 from app.core.middleware import limiter
 from app.ml import predictor
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 
-@router.get("/stats")
+@router.get("/users")
 @limiter.limit("60/minute")
-def get_dashboard_stats(
+def get_users_list(
     request: Request,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
-    """
-    Общая статистика для дашборда.
-    Админ видит все данные, обычный пользователь — только свои.
-    """
-    now = datetime.utcnow()
-    last_hour = now - timedelta(hours=1)
-    last_24h = now - timedelta(hours=24)
+    """Список пользователей с агентами (для админа) или только себя (для пользователя)"""
+    if user.role == "admin":
+        users = db.query(User).all()
+    else:
+        users = [user]
 
-    # Базовые запросы
-    logs_query = db.query(RequestLog)
-    if user.role != "admin":
-        # Обычный пользователь видит только свои данные (пока — все, т.к. агенты общие)
-        pass
+    result = []
+    for u in users:
+        agents = db.query(Agent).filter(Agent.user_id == u.id).all()
+        now = datetime.utcnow()
+        last_hour = now - timedelta(hours=1)
 
-    # Статистика за последний час
-    last_hour_stats = logs_query.filter(RequestLog.timestamp >= last_hour).all()
-    total_requests_1h = len(last_hour_stats)
-    blocked_1h = sum(1 for l in last_hour_stats if l.verdict == "blocked")
-    bot_detected_1h = sum(1 for l in last_hour_stats if l.is_bot)
+        agent_ids = [a.agent_id for a in agents]
+        total_requests = 0
+        blocked = 0
+        bots = 0
 
-    # Статистика за последние 24 часа
-    last_24h_stats = logs_query.filter(RequestLog.timestamp >= last_24h).all()
-    total_requests_24h = len(last_24h_stats)
-    blocked_24h = sum(1 for l in last_24h_stats if l.verdict == "blocked")
-    bot_detected_24h = sum(1 for l in last_24h_stats if l.is_bot)
+        if agent_ids:
+            logs = db.query(RequestLog).filter(
+                RequestLog.agent_id.in_(agent_ids),
+                RequestLog.timestamp >= last_hour
+            ).all()
+            total_requests = len(logs)
+            blocked = sum(1 for l in logs if l.verdict == "blocked")
+            bots = sum(1 for l in logs if l.is_bot)
 
-    # Распределение по уровню риска
-    risk_distribution = {"low": 0, "medium": 0, "high": 0}
-    for log in last_hour_stats:
-        if log.risk_level in risk_distribution:
-            risk_distribution[log.risk_level] += 1
+        settings = db.query(UserMLSettings).filter(UserMLSettings.user_id == u.id).first()
 
-    # Средняя вероятность бота
-    avg_bot_prob = 0.0
-    if last_hour_stats:
-        probs = [
-            l.bot_probability for l in last_hour_stats if l.bot_probability is not None
-        ]
-        if probs:
-            avg_bot_prob = sum(probs) / len(probs)
+        result.append({
+            "id": u.id,
+            "username": u.username,
+            "email": u.email,
+            "role": u.role,
+            "agents_count": len(agents),
+            "agents": [
+                {
+                    "agent_id": a.agent_id,
+                    "name": a.name,
+                    "domain": a.domain,
+                    "is_active": a.is_active,
+                    "last_seen": a.last_seen.isoformat() if a.last_seen else None
+                }
+                for a in agents
+            ],
+            "last_hour": {
+                "total_requests": total_requests,
+                "blocked": blocked,
+                "bots": bots
+            },
+            "ml_model": settings.ml_model if settings else "isolation_forest",
+            "ml_threshold": settings.ml_threshold if settings else 0.65
+        })
 
-    return {
-        "last_hour": {
-            "total_requests": total_requests_1h,
-            "blocked": blocked_1h,
-            "bot_detected": bot_detected_1h,
-            "avg_bot_probability": round(avg_bot_prob, 4),
-        },
-        "last_24h": {
-            "total_requests": total_requests_24h,
-            "blocked": blocked_24h,
-            "bot_detected": bot_detected_24h,
-        },
-        "risk_distribution": risk_distribution,
-        "active_blocked_ips": len(GLOBAL_RULES["block_ips"]),
-        "ml_model": GLOBAL_RULES["ml_model"],
-        "ml_threshold": GLOBAL_RULES["ml_threshold"],
-        "models_loaded": list(predictor.models.keys()),
-    }
+    return result
 
 
-@router.get("/recent-logs")
+@router.get("/user/{user_id}")
 @limiter.limit("60/minute")
-def get_recent_logs(
+def get_user_metrics(
     request: Request,
-    limit: int = 20,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Последние логи запросов с ML-анализом"""
-    if limit > 100:
-        limit = 100
-
-    logs = db.query(RequestLog).order_by(desc(RequestLog.timestamp)).limit(limit).all()
-
-    return [
-        {
-            "id": log.id,
-            "agent_id": log.agent_id,
-            "src_ip": log.src_ip,
-            "method": log.method,
-            "path": log.path,
-            "verdict": log.verdict,
-            "bot_probability": log.bot_probability,
-            "risk_level": log.risk_level,
-            "is_bot": log.is_bot,
-            "ml_model_used": log.ml_model_used,
-            "timestamp": log.timestamp.isoformat() if log.timestamp else None,
-        }
-        for log in logs
-    ]
-
-
-@router.get("/threats")
-@limiter.limit("60/minute")
-def get_active_threats(
-    request: Request,
-    user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Список активных угроз (заблокированные IP + последние обнаруженные боты)"""
-    now = datetime.utcnow()
-    last_hour = now - timedelta(hours=1)
-
-    # 1. Активно заблокированные IP из GLOBAL_RULES
-    blocked_ips = [
-        {
-            "type": "blocked_ip",
-            "value": ip,
-            "severity": "high",
-            "source": "global_rules",
-            "detected_at": GLOBAL_RULES["updated_at"],
-        }
-        for ip in GLOBAL_RULES["block_ips"]
-    ]
-
-    # 2. Последние обнаруженные боты из БД
-    recent_bots = (
-        db.query(RequestLog)
-        .filter(RequestLog.is_bot == True, RequestLog.timestamp >= last_hour)
-        .order_by(desc(RequestLog.timestamp))
-        .limit(10)
-        .all()
-    )
-
-    bot_threats = [
-        {
-            "type": "bot_detected",
-            "value": log.src_ip,
-            "severity": log.risk_level or "medium",
-            "source": log.ml_model_used or "unknown",
-            "detected_at": log.timestamp.isoformat() if log.timestamp else None,
-            "bot_probability": log.bot_probability,
-        }
-        for log in recent_bots
-    ]
-
-    return {
-        "threats": blocked_ips + bot_threats,
-        "total_count": len(blocked_ips) + len(bot_threats),
-    }
-
-
-@router.get("/traffic-chart")
-@limiter.limit("60/minute")
-def get_traffic_chart(
-    request: Request,
+    user_id: int,
     hours: int = 6,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
-    """
-    Данные для графика трафика по часам.
-    Возвращает массив точек: {hour, total, blocked, bots}
-    """
-    if hours > 24:
-        hours = 24
+    """Метрики конкретного пользователя"""
+    if user.role != "admin" and user.id != user_id:
+        raise HTTPException(403, "Доступ запрещён")
+
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+
+    agents = db.query(Agent).filter(Agent.user_id == user_id).all()
+    agent_ids = [a.agent_id for a in agents]
 
     now = datetime.utcnow()
     start_time = now - timedelta(hours=hours)
+    last_hour = now - timedelta(hours=1)
 
-    # Получаем все логи за период
-    logs = db.query(RequestLog).filter(RequestLog.timestamp >= start_time).all()
+    if not agent_ids:
+        return {
+            "user": {"id": target.id, "username": target.username, "email": target.email, "role": target.role},
+            "agents": [],
+            "stats": {"total": 0, "blocked": 0, "bots": 0, "avg_bot_prob": 0},
+            "traffic_chart": [],
+            "recent_logs": [],
+            "threats": [],
+            "risk_distribution": {"low": 0, "medium": 0, "high": 0}
+        }
 
-    # Группируем по часам
-    hourly_data = {}
+    # Статистика за последний час
+    hour_logs = db.query(RequestLog).filter(
+        RequestLog.agent_id.in_(agent_ids),
+        RequestLog.timestamp >= last_hour
+    ).all()
+
+    total = len(hour_logs)
+    blocked = sum(1 for l in hour_logs if l.verdict == "blocked")
+    bots = sum(1 for l in hour_logs if l.is_bot)
+    probs = [l.bot_probability for l in hour_logs if l.bot_probability is not None]
+    avg_prob = sum(probs) / len(probs) if probs else 0
+
+    # Распределение риска
+    risk_dist = {"low": 0, "medium": 0, "high": 0}
+    for l in hour_logs:
+        if l.risk_level in risk_dist:
+            risk_dist[l.risk_level] += 1
+
+    # График трафика
+    all_logs = db.query(RequestLog).filter(
+        RequestLog.agent_id.in_(agent_ids),
+        RequestLog.timestamp >= start_time
+    ).all()
+
+    hourly = {}
     for i in range(hours):
-        hour_dt = now - timedelta(hours=hours - i - 1)
-        hour_key = hour_dt.strftime("%H:00")
-        hourly_data[hour_key] = {"hour": hour_key, "total": 0, "blocked": 0, "bots": 0}
+        h = (now - timedelta(hours=hours - i - 1)).strftime("%H:00")
+        hourly[h] = {"hour": h, "total": 0, "blocked": 0, "bots": 0}
 
-    for log in logs:
-        if log.timestamp:
-            hour_key = log.timestamp.strftime("%H:00")
-            if hour_key in hourly_data:
-                hourly_data[hour_key]["total"] += 1
-                if log.verdict == "blocked":
-                    hourly_data[hour_key]["blocked"] += 1
-                if log.is_bot:
-                    hourly_data[hour_key]["bots"] += 1
+    for l in all_logs:
+        if l.timestamp:
+            h = l.timestamp.strftime("%H:00")
+            if h in hourly:
+                hourly[h]["total"] += 1
+                if l.verdict == "blocked":
+                    hourly[h]["blocked"] += 1
+                if l.is_bot:
+                    hourly[h]["bots"] += 1
+
+    # Последние логи
+    recent = db.query(RequestLog).filter(
+        RequestLog.agent_id.in_(agent_ids)
+    ).order_by(desc(RequestLog.timestamp)).limit(20).all()
+
+    # Угрозы
+    bot_logs = db.query(RequestLog).filter(
+        RequestLog.agent_id.in_(agent_ids),
+        RequestLog.is_bot == True,
+        RequestLog.timestamp >= last_hour
+    ).order_by(desc(RequestLog.timestamp)).limit(10).all()
+
+    settings = db.query(UserMLSettings).filter(UserMLSettings.user_id == user_id).first()
 
     return {
-        "data": list(hourly_data.values()),
-        "period_hours": hours,
-    }
-
-
-@router.get("/ml-health")
-@limiter.limit("60/minute")
-def get_ml_health(request: Request, user: User = Depends(get_current_user)):
-    """Состояние ML-системы"""
-    return {
-        "status": "ok",
-        "models_loaded": list(predictor.models.keys()),
-        "active_model": GLOBAL_RULES["ml_model"],
-        "ml_threshold": GLOBAL_RULES["ml_threshold"],
-        "available_models": list(predictor.AVAILABLE_MODELS),
+        "user": {"id": target.id, "username": target.username, "email": target.email, "role": target.role},
+        "agents": [
+            {
+                "agent_id": a.agent_id,
+                "name": a.name,
+                "domain": a.domain,
+                "is_active": a.is_active,
+                "last_seen": a.last_seen.isoformat() if a.last_seen else None
+            }
+            for a in agents
+        ],
+        "ml_settings": {
+            "model": settings.ml_model if settings else "isolation_forest",
+            "threshold": settings.ml_threshold if settings else 0.65
+        },
+        "stats": {
+            "total": total,
+            "blocked": blocked,
+            "bots": bots,
+            "avg_bot_prob": round(avg_prob, 4)
+        },
+        "risk_distribution": risk_dist,
+        "traffic_chart": list(hourly.values()),
+        "recent_logs": [
+            {
+                "id": l.id,
+                "agent_id": l.agent_id,
+                "src_ip": l.src_ip,
+                "verdict": l.verdict,
+                "bot_probability": l.bot_probability,
+                "risk_level": l.risk_level,
+                "is_bot": l.is_bot,
+                "ml_model_used": l.ml_model_used,
+                "timestamp": l.timestamp.isoformat() if l.timestamp else None
+            }
+            for l in recent
+        ],
+        "threats": [
+            {
+                "value": l.src_ip,
+                "severity": l.risk_level or "medium",
+                "bot_probability": l.bot_probability,
+                "detected_at": l.timestamp.isoformat() if l.timestamp else None
+            }
+            for l in bot_logs
+        ]
     }

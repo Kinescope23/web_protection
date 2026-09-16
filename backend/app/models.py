@@ -9,7 +9,7 @@ from sqlalchemy import (
     Integer,
     Float,
 )
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 
 Base = declarative_base()
@@ -108,3 +108,24 @@ class Upload(Base):
     status = Column(String(16), default="in_progress")  # in_progress / completed / failed
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True), nullable=True)
+
+class Agent(Base):
+    __tablename__ = "agents"
+    id = Column(BigInteger, primary_key=True)
+    agent_id = Column(String(64), unique=True, nullable=False, index=True)
+    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String(128), nullable=False)
+    domain = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_seen = Column(DateTime(timezone=True), nullable=True)
+    user = relationship("User", backref="agents")
+
+
+class UserMLSettings(Base):
+    __tablename__ = "user_ml_settings"
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    ml_model = Column(String(64), default="isolation_forest")
+    ml_threshold = Column(Float, default=0.65)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())

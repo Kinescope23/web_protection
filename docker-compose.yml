@@ -55,6 +55,8 @@ services:
 
   agent:
     build: ./agent
+    ports:
+      - "8080:8080"
     container_name: np-agent
     environment:
       - SERVER_URL=http://backend:8000

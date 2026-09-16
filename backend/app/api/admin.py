@@ -1,281 +1,113 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import User, InvitationKey, AuditLog
+from app.models import User, InvitationKey, AuditLog, Agent, UserMLSettings
 from app.api.deps import get_current_user
 from app.api.metrics import GLOBAL_RULES
-import secrets
-from datetime import datetime
 from app.ml import predictor
+import secrets
+import os
+from datetime import datetime
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+BASE_DIR = "/app/ml_models"
 
 
 # === Зависимость для проверки роли администратора ===
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    """Проверяет, что текущий пользователь является администратором"""
     if not user or user.role != "admin":
         raise HTTPException(
-            status_code=403, detail="Доступ запрещен. Требуются права администратора."
+            status_code=403,
+            detail="Доступ запрещен. Требуются права администратора."
         )
     return user
 
 
 def log_audit(db: Session, user_id: int, action: str, details: str, ip: str):
-    """Логирование действий администратора"""
-    audit = AuditLog(user_id=user_id, action=action, details=details, ip_address=ip)
+    audit = AuditLog(
+        user_id=user_id,
+        action=action,
+        details=details,
+        ip_address=ip
+    )
     db.add(audit)
     db.commit()
 
+
+# === Ключи приглашения ===
 
 @router.post("/generate-invite")
 def generate_invite_key(
     request: Request,
     admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
-    """
-    Генерация уникального ключа приглашения для регистрации нового пользователя.
-    """
     new_key = f"NP-{secrets.token_urlsafe(16).upper()}"
-
-    invite = InvitationKey(key=new_key, created_by=admin.id, is_used=False)
+    invite = InvitationKey(
+        key=new_key,
+        created_by=admin.id,
+        is_used=False
+    )
     db.add(invite)
-
     log_audit(
-        db,
-        admin.id,
-        "GENERATE_INVITE",
+        db, admin.id, "GENERATE_INVITE",
         f"Создан ключ регистрации: {new_key}",
-        request.client.host,
+        request.client.host
     )
     db.commit()
-
     return {"invitation_key": new_key, "message": "Ключ успешно создан"}
 
 
 @router.get("/invitation-keys")
 def get_invitation_keys(
-    admin: User = Depends(require_admin), db: Session = Depends(get_db), limit: int = 50
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    limit: int = 50
 ):
-    """Получить список всех ключей приглашения"""
-    keys = (
-        db.query(InvitationKey)
-        .order_by(InvitationKey.created_at.desc())
-        .limit(limit)
-        .all()
-    )
+    keys = db.query(InvitationKey).order_by(InvitationKey.created_at.desc()).limit(limit).all()
     return [
         {
             "id": key.id,
             "key": key.key,
             "is_used": key.is_used,
             "created_at": key.created_at.isoformat(),
-            "created_by": key.created_by,
+            "created_by": key.created_by
         }
         for key in keys
     ]
 
 
-@router.post("/ml-settings")
-def update_ml_settings(
-    request: Request,
-    threshold: float,
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-):
-    """
-    Обновление порога чувствительности ML-модели.
-    Доступно только администраторам.
-    """
-    if not (0.0 <= threshold <= 1.0):
-        raise HTTPException(400, "Порог чувствительности должен быть от 0.0 до 1.0")
-
-    old_threshold = GLOBAL_RULES["ml_threshold"]
-    GLOBAL_RULES["ml_threshold"] = threshold
-    GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
-
-    log_audit(
-        db,
-        admin.id,
-        "UPDATE_ML_SETTINGS",
-        f"Изменен порог ML-анализа с {old_threshold} на {threshold}",
-        request.client.host,
-    )
-
-    return {"message": "Настройки ML обновлены", "new_threshold": threshold}
-
-
-@router.get("/audit-logs")
-def get_audit_logs(
-    admin: User = Depends(require_admin), db: Session = Depends(get_db), limit: int = 50
-):
-    """Получить список последних действий администраторов"""
-    logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).all()
-    return [
-        {
-            "id": log.id,
-            "user_id": log.user_id,
-            "action": log.action,
-            "details": log.details,
-            "ip_address": log.ip_address,
-            "timestamp": log.timestamp.isoformat(),
-        }
-        for log in logs
-    ]
+# === ML-модели (только просмотр и управление файлами) ===
 
 @router.get("/ml-models")
 def get_available_models(
     admin: User = Depends(require_admin)
 ):
-    """Получить список доступных ML-моделей и их статус"""
+    """Получить список доступных ML-моделей и их статус загрузки"""
     available = list(predictor.AVAILABLE_MODELS)
     loaded = list(predictor.models.keys())
 
     return {
         "available_models": available,
         "loaded_models": loaded,
-        "active_model": GLOBAL_RULES["ml_model"],
         "models_info": [
             {
                 "name": name,
-                "status": "loaded" if name in loaded else "not_loaded",
-                "is_active": name == GLOBAL_RULES["ml_model"]
+                "status": "loaded" if name in loaded else "not_loaded"
             }
             for name in available
         ]
     }
-
-
-@router.post("/ml-model/active")
-def set_active_model(
-    request: Request,
-    model_name: str,
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db)
-):
-    """Установить активную ML-модель"""
-    if model_name not in predictor.AVAILABLE_MODELS:
-        raise HTTPException(
-            400,
-            f"Неизвестная модель. Доступны: {', '.join(predictor.AVAILABLE_MODELS)}"
-        )
-
-    if model_name not in predictor.models:
-        raise HTTPException(
-            400,
-            f"Модель '{model_name}' не загружена на сервере"
-        )
-
-    old_model = GLOBAL_RULES["ml_model"]
-    GLOBAL_RULES["ml_model"] = model_name
-    GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
-
-    log_audit(
-        db, admin.id, "CHANGE_ML_MODEL",
-        f"Изменена активная ML-модель с '{old_model}' на '{model_name}'",
-        request.client.host
-    )
-
-    return {
-        "message": f"Активная модель изменена на '{model_name}'",
-        "previous_model": old_model,
-        "current_model": model_name
-    }
-
-@router.get("/stats")
-def get_system_stats(
-    admin: User = Depends(require_admin), db: Session = Depends(get_db)
-):
-    """Получение общей статистики системы для дашборда администратора"""
-    total_users = db.query(User).count()
-    active_invites = (
-        db.query(InvitationKey).filter(InvitationKey.is_used == False).count()
-    )
-
-    return {
-        "total_users": total_users,
-        "active_invitation_keys": active_invites,
-        "current_ml_threshold": GLOBAL_RULES["ml_threshold"],
-        "currently_blocked_ips": len(GLOBAL_RULES["block_ips"]),
-    }
-
-@router.get("/ml-models")
-def get_available_models(
-    admin: User = Depends(require_admin)
-):
-    """
-    Получить список доступных ML-моделей и их статус загрузки.
-    """
-    available = list(predictor.AVAILABLE_MODELS)
-    loaded = list(predictor.models.keys())
-
-    return {
-        "available_models": available,
-        "loaded_models": loaded,
-        "active_model": GLOBAL_RULES["ml_model"],
-        "models_info": [
-            {
-                "name": name,
-                "status": "loaded" if name in loaded else "not_loaded",
-                "is_active": name == GLOBAL_RULES["ml_model"]
-            }
-            for name in available
-        ]
-    }
-
-@router.post("/ml-model/active")
-def set_active_model(
-    request: Request,
-    model_name: str,
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db)
-):
-    """
-    Установить активную ML-модель для анализа трафика.
-    Модель должна быть загружена на сервере.
-    """
-    # Валидация: модель должна быть в списке доступных
-    if model_name not in predictor.AVAILABLE_MODELS:
-        raise HTTPException(
-            400,
-            f"Неизвестная модель. Доступны: {', '.join(predictor.AVAILABLE_MODELS)}"
-        )
-
-    # Валидация: модель должна быть загружена
-    if model_name not in predictor.models:
-        raise HTTPException(
-            400,
-            f"Модель '{model_name}' не загружена на сервере. "
-            f"Загружены: {', '.join(predictor.models.keys()) or 'нет'}"
-        )
-
-    old_model = GLOBAL_RULES["ml_model"]
-    GLOBAL_RULES["ml_model"] = model_name
-    GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
-
-    log_audit(
-        db, admin.id, "CHANGE_ML_MODEL",
-        f"Изменена активная ML-модель с '{old_model}' на '{model_name}'",
-        request.client.host
-    )
-
-    return {
-        "message": f"Активная модель изменена на '{model_name}'",
-        "previous_model": old_model,
-        "current_model": model_name
-    }
-
-
-from fastapi import UploadFile, File
 
 
 @router.post("/ml-models")
 async def upload_ml_model(
-        model_file: UploadFile = File(...),
-        scaler_file: UploadFile = File(...),
-        admin: User = Depends(require_admin)
+    model_file: UploadFile = File(...),
+    scaler_file: UploadFile = File(...),
+    admin: User = Depends(require_admin)
 ):
+    """Загрузить новую ML-модель (пара .pkl + _scaler.pkl)"""
     if not model_file.filename.endswith(".pkl") or model_file.filename.endswith("_scaler.pkl"):
         raise HTTPException(400, "Файл модели должен иметь расширение .pkl и не быть скейлером")
     if not scaler_file.filename.endswith("_scaler.pkl"):
@@ -303,16 +135,14 @@ async def upload_ml_model(
 
 @router.delete("/ml-models/{model_name}")
 def delete_ml_model(
-        model_name: str,
-        request: Request,
-        admin: User = Depends(require_admin),
-        db: Session = Depends(get_db)
+    model_name: str,
+    request: Request,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
 ):
+    """Удалить ML-модель с сервера"""
     if model_name not in predictor.models:
         raise HTTPException(404, "Модель не найдена")
-
-    if model_name == GLOBAL_RULES.get("ml_model"):
-        raise HTTPException(400, "Нельзя удалить активную модель. Сначала переключитесь на другую.")
 
     model_path = os.path.join(BASE_DIR, f"{model_name}.pkl")
     scaler_path = os.path.join(BASE_DIR, f"{model_name}_scaler.pkl")
@@ -332,3 +162,171 @@ def delete_ml_model(
     )
 
     return {"message": f"Модель '{model_name}' успешно удалена"}
+
+
+# === Управление агентами ===
+
+@router.get("/agents")
+def get_all_agents(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Получить список всех агентов"""
+    agents = db.query(Agent).order_by(Agent.created_at.desc()).all()
+    return [
+        {
+            "id": a.id,
+            "agent_id": a.agent_id,
+            "user_id": a.user_id,
+            "username": a.user.username if a.user else "неизвестно",
+            "name": a.name,
+            "domain": a.domain,
+            "is_active": a.is_active,
+            "last_seen": a.last_seen.isoformat() if a.last_seen else None,
+            "created_at": a.created_at.isoformat() if a.created_at else None
+        }
+        for a in agents
+    ]
+
+
+@router.post("/agents")
+def create_agent(
+    request: Request,
+    agent_id: str,
+    user_id: int,
+    name: str,
+    domain: str = "",
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Создать нового агента для пользователя"""
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+
+    existing = db.query(Agent).filter(Agent.agent_id == agent_id).first()
+    if existing:
+        raise HTTPException(400, "Агент с таким ID уже существует")
+
+    agent = Agent(
+        agent_id=agent_id,
+        user_id=user_id,
+        name=name,
+        domain=domain or None,
+        is_active=True
+    )
+    db.add(agent)
+
+    log_audit(
+        db, admin.id, "CREATE_AGENT",
+        f"Создан агент: {agent_id} для user_id={user_id}",
+        request.client.host
+    )
+    db.commit()
+
+    return {"message": "Агент создан", "agent_id": agent_id}
+
+
+@router.delete("/agents/{agent_db_id}")
+def delete_agent(
+    agent_db_id: int,
+    request: Request,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Удалить агента"""
+    agent = db.query(Agent).filter(Agent.id == agent_db_id).first()
+    if not agent:
+        raise HTTPException(404, "Агент не найден")
+
+    log_audit(
+        db, admin.id, "DELETE_AGENT",
+        f"Удалён агент: {agent.agent_id} (user_id={agent.user_id})",
+        request.client.host if request.client else "unknown"
+    )
+
+    db.delete(agent)
+    db.commit()
+    return {"message": f"Агент '{agent.agent_id}' удалён"}
+
+
+# === Per-user ML настройки ===
+
+@router.post("/user/{user_id}/ml-settings")
+def set_user_ml_settings(
+    request: Request,
+    user_id: int,
+    ml_model: str,
+    threshold: float,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Установить ML-настройки для конкретного пользователя"""
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(404, "Пользователь не найден")
+
+    if ml_model not in predictor.models:
+        raise HTTPException(400, f"Модель '{ml_model}' не загружена")
+
+    if not (0.0 <= threshold <= 1.0):
+        raise HTTPException(400, "Порог должен быть от 0.0 до 1.0")
+
+    settings = db.query(UserMLSettings).filter(UserMLSettings.user_id == user_id).first()
+    if not settings:
+        settings = UserMLSettings(user_id=user_id, ml_model=ml_model, ml_threshold=threshold)
+        db.add(settings)
+    else:
+        settings.ml_model = ml_model
+        settings.ml_threshold = threshold
+        settings.updated_at = datetime.utcnow()
+
+    log_audit(
+        db, admin.id, "UPDATE_USER_ML",
+        f"ML для user={user_id}: model={ml_model}, threshold={threshold}",
+        request.client.host
+    )
+    db.commit()
+
+    return {"message": "Настройки ML обновлены", "ml_model": ml_model, "ml_threshold": threshold}
+
+
+# === Статистика и аудит ===
+
+@router.get("/audit-logs")
+def get_audit_logs(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+    limit: int = 50
+):
+    logs = db.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(limit).all()
+    return [
+        {
+            "id": log.id,
+            "user_id": log.user_id,
+            "action": log.action,
+            "details": log.details,
+            "ip_address": log.ip_address,
+            "timestamp": log.timestamp.isoformat()
+        }
+        for log in logs
+    ]
+
+
+@router.get("/stats")
+def get_system_stats(
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db)
+):
+    """Общая статистика системы"""
+    total_users = db.query(User).count()
+    active_invites = db.query(InvitationKey).filter(InvitationKey.is_used == False).count()
+    total_agents = db.query(Agent).count()
+
+    return {
+        "total_users": total_users,
+        "active_invitation_keys": active_invites,
+        "currently_blocked_ips": len(GLOBAL_RULES["block_ips"]),
+        "total_agents": total_agents,
+        "loaded_ml_models": list(predictor.models.keys())
+    }

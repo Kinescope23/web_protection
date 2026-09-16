@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from datetime import datetime
+from typing import List
+
 from app.database import get_db
-from app.models import RequestLog
+from app.models import RequestLog, Agent, UserMLSettings, User
 from app.core.middleware import limiter
 from app.ml import predictor
 from pydantic import BaseModel
-from typing import List
-from datetime import datetime
 
 router = APIRouter(prefix="/api/v1/agent", tags=["agent"])
 
@@ -23,7 +24,6 @@ class MetricWindow(BaseModel):
     errors_count: int
     error_rate: float
     avg_payload_size: int
-    # Новые поля для расширенного ML-анализа
     requests_per_sec: float = 1.0
     ua_entropy: float = 3.5
     post_ratio: float = 0.2
@@ -41,27 +41,47 @@ class RuleUpdate(BaseModel):
 GLOBAL_RULES = {
     "block_ips": [],
     "rate_limit_rps": 100,
-    "ml_threshold": 0.65,  # Порог вероятности бота (совпадает с predictor)
-    "ml_model": "isolation_forest",  # Активная модель
-    "updated_at": datetime.utcnow().isoformat(),
+    "updated_at": datetime.utcnow().isoformat()
 }
+
+
+def get_user_ml_settings(db: Session, user_id: int) -> dict:
+    settings = db.query(UserMLSettings).filter(UserMLSettings.user_id == user_id).first()
+    if not settings:
+        settings = UserMLSettings(user_id=user_id, ml_model="isolation_forest", ml_threshold=0.65)
+        db.add(settings)
+        db.commit()
+        db.refresh(settings)
+    return {"ml_model": settings.ml_model, "ml_threshold": settings.ml_threshold}
 
 
 @router.post("/metrics")
 @limiter.limit("120/minute")
 async def receive_aggregated_metrics(
-    request: Request, windows: List[MetricWindow], db: Session = Depends(get_db)
+    request: Request,
+    windows: List[MetricWindow],
+    db: Session = Depends(get_db)
 ):
-    """
-    Принимает агрегированные метрики от агента (окно 30 сек).
-    Применяет ML-модель и сохраняет результаты в БД для дашборда.
-    """
     new_blocked_ips = []
-    active_model = GLOBAL_RULES["ml_model"]
-    processed_count = 0
 
     for window in windows:
-        # 1. ML-анализ через новую модель напарника
+        # Находим агента и его владельца
+        agent = db.query(Agent).filter(Agent.agent_id == window.agent_id).first()
+
+        # Если агент не зарегистрирован админом — пропускаем метрики
+        if not agent:
+            print(f"[Agent] Агент '{window.agent_id}' не зарегистрирован. "
+                  f"Попросите администратора создать его в панели управления.")
+            continue
+
+        # Обновляем last_seen
+        agent.last_seen = datetime.utcnow()
+
+        # Получаем per-user настройки ML
+        user_settings = get_user_ml_settings(db, agent.user_id)
+        active_model = user_settings["ml_model"]
+        threshold = user_settings["ml_threshold"]
+
         features = {
             "requests_per_sec": window.requests_per_sec,
             "unique_ips_ratio": window.unique_ips_ratio,
@@ -72,14 +92,11 @@ async def receive_aggregated_metrics(
         }
 
         result = predictor.predict(features, model_name=active_model)
-
-        # 2. Применяем порог чувствительности из настроек админа
         bot_probability = result.get("bot_probability", 0.0)
         risk_level = result.get("risk_level", "low")
         is_bot = result.get("is_bot", False)
-        is_attack = bot_probability > GLOBAL_RULES["ml_threshold"]
+        is_attack = bot_probability > threshold
 
-        # 3. Сохраняем результат ML-анализа в БД
         verdict = "blocked" if is_attack else "allowed"
         log = RequestLog(
             agent_id=window.agent_id,
@@ -93,52 +110,97 @@ async def receive_aggregated_metrics(
             risk_level=risk_level,
             ml_model_used=active_model,
             is_bot=is_bot,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.utcnow()
         )
         db.add(log)
-        processed_count += 1
 
-        # 4. Если обнаружена атака — блокируем IP
         if is_attack:
-            fake_attacker_ip = (
-                f"10.0.{hash(window.agent_id) % 255}.{window.total_requests % 255}"
-            )
-            if fake_attacker_ip not in GLOBAL_RULES["block_ips"]:
-                GLOBAL_RULES["block_ips"].append(fake_attacker_ip)
+            fake_ip = f"10.0.{hash(window.agent_id) % 255}.{window.total_requests % 255}"
+            if fake_ip not in GLOBAL_RULES["block_ips"]:
+                GLOBAL_RULES["block_ips"].append(fake_ip)
                 if len(GLOBAL_RULES["block_ips"]) > 100:
                     GLOBAL_RULES["block_ips"] = GLOBAL_RULES["block_ips"][-100:]
-                new_blocked_ips.append(fake_attacker_ip)
+                new_blocked_ips.append(fake_ip)
                 GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
 
-        print(
-            f"[ML] Анализ: agent={window.agent_id}, model={active_model}, "
-            f"bot_prob={bot_probability:.3f}, risk={risk_level}, is_attack={is_attack}"
+        print(f"[ML] agent={window.agent_id}, user={agent.user_id}, "
+              f"model={active_model}, threshold={threshold}, "
+              f"bot_prob={bot_probability:.3f}, risk={risk_level}")
+
+        # Получаем per-user настройки ML
+        user_settings = get_user_ml_settings(db, agent.user_id)
+        active_model = user_settings["ml_model"]
+        threshold = user_settings["ml_threshold"]
+
+        features = {
+            "requests_per_sec": window.requests_per_sec,
+            "unique_ips_ratio": window.unique_ips_ratio,
+            "ua_entropy": window.ua_entropy,
+            "post_ratio": window.post_ratio,
+            "error_rate": window.error_rate,
+            "avg_inter_arrival_ms": window.avg_inter_arrival_ms,
+        }
+
+        result = predictor.predict(features, model_name=active_model)
+        bot_probability = result.get("bot_probability", 0.0)
+        risk_level = result.get("risk_level", "low")
+        is_bot = result.get("is_bot", False)
+        is_attack = bot_probability > threshold
+
+        verdict = "blocked" if is_attack else "allowed"
+        log = RequestLog(
+            agent_id=window.agent_id,
+            src_ip=f"AGGREGATED:{window.unique_ips}ips",
+            method="BATCH",
+            path=f"/window-{window.total_requests}req",
+            status_code=200,
+            verdict=verdict,
+            latency_ms=0,
+            bot_probability=bot_probability,
+            risk_level=risk_level,
+            ml_model_used=active_model,
+            is_bot=is_bot,
+            timestamp=datetime.utcnow()
         )
+        db.add(log)
+
+        if is_attack:
+            fake_ip = f"10.0.{hash(window.agent_id) % 255}.{window.total_requests % 255}"
+            if fake_ip not in GLOBAL_RULES["block_ips"]:
+                GLOBAL_RULES["block_ips"].append(fake_ip)
+                if len(GLOBAL_RULES["block_ips"]) > 100:
+                    GLOBAL_RULES["block_ips"] = GLOBAL_RULES["block_ips"][-100:]
+                new_blocked_ips.append(fake_ip)
+                GLOBAL_RULES["updated_at"] = datetime.utcnow().isoformat()
+
+        print(f"[ML] agent={window.agent_id}, user={agent.user_id}, "
+              f"model={active_model}, threshold={threshold}, "
+              f"bot_prob={bot_probability:.3f}, risk={risk_level}")
 
     db.commit()
 
     return {
         "status": "processed",
         "windows_received": len(windows),
-        "processed_count": processed_count,
-        "new_rules_generated": len(new_blocked_ips) > 0,
-        "models_loaded": list(predictor.models.keys()),
-        "active_model": active_model,
+        "new_rules_generated": len(new_blocked_ips) > 0
     }
 
 
 @router.get("/rules", response_model=RuleUpdate)
 @limiter.limit("120/minute")
 async def get_latest_rules(request: Request):
-    """Эндпоинт для опроса агентами каждую 1 секунду."""
-    return GLOBAL_RULES
+    return {
+        "block_ips": GLOBAL_RULES["block_ips"],
+        "rate_limit_rps": GLOBAL_RULES["rate_limit_rps"],
+        "ml_threshold": 0.65,
+        "updated_at": GLOBAL_RULES["updated_at"]
+    }
 
 
 @router.post("/simulate-attack")
 async def simulate_attack(request: Request, db: Session = Depends(get_db)):
-    """Тестовый эндпоинт для имитации бот-атаки."""
     attack_window = MetricWindow(
-        agent_id="simulated-attacker",
+        agent_id="agent-001",
         window_start=datetime.utcnow().isoformat(),
         window_end=datetime.utcnow().isoformat(),
         total_requests=5000,
@@ -149,11 +211,10 @@ async def simulate_attack(request: Request, db: Session = Depends(get_db)):
         errors_count=3000,
         error_rate=0.6,
         avg_payload_size=100,
-        # Новые поля для расширенного ML
         requests_per_sec=150.0,
         ua_entropy=1.0,
         post_ratio=0.8,
-        avg_inter_arrival_ms=50.0,
+        avg_inter_arrival_ms=50.0
     )
     return await receive_aggregated_metrics(request, [attack_window], db)
 
@@ -163,7 +224,5 @@ def agent_health():
     return {
         "status": "ok",
         "models_loaded": list(predictor.models.keys()),
-        "active_blocked_ips": len(GLOBAL_RULES["block_ips"]),
-        "ml_threshold": GLOBAL_RULES["ml_threshold"],
-        "active_model": GLOBAL_RULES["ml_model"],
+        "active_blocked_ips": len(GLOBAL_RULES["block_ips"])
     }
