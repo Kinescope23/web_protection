@@ -265,3 +265,70 @@ def set_active_model(
         "previous_model": old_model,
         "current_model": model_name
     }
+
+
+from fastapi import UploadFile, File
+
+
+@router.post("/ml-models")
+async def upload_ml_model(
+        model_file: UploadFile = File(...),
+        scaler_file: UploadFile = File(...),
+        admin: User = Depends(require_admin)
+):
+    if not model_file.filename.endswith(".pkl") or model_file.filename.endswith("_scaler.pkl"):
+        raise HTTPException(400, "Файл модели должен иметь расширение .pkl и не быть скейлером")
+    if not scaler_file.filename.endswith("_scaler.pkl"):
+        raise HTTPException(400, "Файл скейлера должен иметь расширение _scaler.pkl")
+
+    model_name = model_file.filename[:-4]
+    expected_scaler_name = f"{model_name}_scaler.pkl"
+
+    if scaler_file.filename != expected_scaler_name:
+        raise HTTPException(400, f"Имя файла скейлера должно быть {expected_scaler_name}")
+
+    os.makedirs(BASE_DIR, exist_ok=True)
+    model_path = os.path.join(BASE_DIR, model_file.filename)
+    scaler_path = os.path.join(BASE_DIR, scaler_file.filename)
+
+    with open(model_path, "wb") as f:
+        f.write(await model_file.read())
+    with open(scaler_path, "wb") as f:
+        f.write(await scaler_file.read())
+
+    predictor._load_all()
+
+    return {"message": f"Модель '{model_name}' успешно загружена и активирована"}
+
+
+@router.delete("/ml-models/{model_name}")
+def delete_ml_model(
+        model_name: str,
+        request: Request,
+        admin: User = Depends(require_admin),
+        db: Session = Depends(get_db)
+):
+    if model_name not in predictor.models:
+        raise HTTPException(404, "Модель не найдена")
+
+    if model_name == GLOBAL_RULES.get("ml_model"):
+        raise HTTPException(400, "Нельзя удалить активную модель. Сначала переключитесь на другую.")
+
+    model_path = os.path.join(BASE_DIR, f"{model_name}.pkl")
+    scaler_path = os.path.join(BASE_DIR, f"{model_name}_scaler.pkl")
+
+    try:
+        os.remove(model_path)
+        os.remove(scaler_path)
+    except OSError as e:
+        raise HTTPException(500, f"Ошибка удаления файлов модели: {str(e)}")
+
+    predictor._load_all()
+
+    log_audit(
+        db, admin.id, "DELETE_ML_MODEL",
+        f"Удалена модель: {model_name}",
+        request.client.host if request.client else "unknown"
+    )
+
+    return {"message": f"Модель '{model_name}' успешно удалена"}

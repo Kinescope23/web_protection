@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import auth, users, metrics, admin, dashboard
+from app.api import auth, users, metrics, admin, dashboard, upload
 from app.core.middleware import RequestIDMiddleware, limiter
 
 app = FastAPI(
@@ -40,6 +40,7 @@ app.include_router(users.router)
 app.include_router(metrics.router)
 app.include_router(admin.router)
 app.include_router(dashboard.router)
+app.include_router(upload.router)
 
 
 # === 6. Глобальный обработчик ошибок 413 и 415 ===

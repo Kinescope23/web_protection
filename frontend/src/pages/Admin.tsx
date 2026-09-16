@@ -106,6 +106,49 @@ export default function Admin() {
     }
   }
 
+  const [modelFile, setModelFile] = useState<File | null>(null)
+  const [scalerFile, setScalerFile] = useState<File | null>(null)
+  const [uploadingModel, setUploadingModel] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const scalerInputRef = useRef<HTMLInputElement>(null)
+
+  const handleModelUpload = async () => {
+    if (!modelFile || !scalerFile) return
+    setUploadingModel(true)
+    try {
+      const formData = new FormData()
+      formData.append('model_file', modelFile)
+      formData.append('scaler_file', scalerFile)
+      
+      await api.post('/admin/ml-models', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      setMessage('Модель успешно загружена')
+      setModelFile(null)
+      setScalerFile(null)
+      fetchModels()
+      setTimeout(() => setMessage(''), 3000)
+    } catch (e: any) {
+      setMessage(e.response?.data?.detail || 'Ошибка загрузки модели')
+      setTimeout(() => setMessage(''), 3000)
+    } finally {
+      setUploadingModel(false)
+    }
+  }
+
+  const handleDeleteModel = async (modelName: string) => {
+    if (!confirm(`Вы уверены, что хотите удалить модель '${modelName}'?`)) return
+    try {
+      await api.delete(`/admin/ml-models/${modelName}`)
+      setMessage(`Модель '${modelName}' удалена`)
+      fetchModels()
+      setTimeout(() => setMessage(''), 3000)
+    } catch (e: any) {
+      setMessage(e.response?.data?.detail || 'Ошибка удаления модели')
+      setTimeout(() => setMessage(''), 3000)
+    }
+  }
+
   return (
     <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
       <h1 style={{ color: '#2c3e50', marginBottom: 30 }}>Админ-панель</h1>
@@ -282,46 +325,93 @@ export default function Admin() {
       </div>
 
       {/* Секция 2: Настройки ML */}
-      <div style={{ background: '#fff', padding: 25, borderRadius: 8, border: '1px solid #ddd' }}>
-        <h2 style={{ marginTop: 0, color: '#2c3e50' }}>Настройки ML-модели</h2>
+      <div style={{ background: '#fff', padding: 25, borderRadius: 8, border: '1px solid #ddd', marginTop: 30 }}>
+        <h2 style={{ marginTop: 0, color: '#2c3e50' }}>Управление ML-моделями</h2>
         <p style={{ color: '#666', marginBottom: 20 }}>
-          Порог чувствительности определяет, насколько агрессивно система блокирует подозрительный трафик.
-          Активная модель используется для анализа всех входящих окон метрик.
+          Загружайте новые пары файлов (.pkl и _scaler.pkl) или удаляйте неиспользуемые модели.
         </p>
 
-        {/* Выбор активной модели */}
         <div style={{ marginBottom: 25, padding: 15, background: '#f8f9fa', borderRadius: 5 }}>
-          <label style={{ display: 'block', marginBottom: 10, fontWeight: 'bold' }}>
-            Активная модель для анализа трафика:
-          </label>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {availableModels.map((model) => (
-              <button
-                key={model.name}
-                onClick={() => changeActiveModel(model.name)}
-                disabled={model.status !== 'loaded' || model.is_active}
-                style={{
-                  padding: '10px 20px',
-                  background: model.is_active ? '#27ae60' : (model.status === 'loaded' ? '#667eea' : '#95a5a6'),
-                  color: 'white',
-                  border: model.is_active ? '2px solid #16a085' : '2px solid transparent',
-                  borderRadius: 5,
-                  cursor: (model.status === 'loaded' && !model.is_active) ? 'pointer' : 'not-allowed',
-                  fontWeight: model.is_active ? 'bold' : 'normal',
-                  fontSize: 14,
-                  opacity: model.status === 'loaded' ? 1 : 0.6
-                }}
-              >
-                {model.name.replace('_', ' ')}
-                {model.is_active && ' (активна)'}
-                {model.status !== 'loaded' && ' (не загружена)'}
-              </button>
-            ))}
-          </div>
+          <label style={{ display: 'block', marginBottom: 10, fontWeight: 'bold' }}>Доступные модели:</label>
+          {availableModels.length === 0 ? (
+            <p style={{ color: '#888' }}>Модели не найдены</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {availableModels.map((model) => (
+                <div key={model.name} style={{ 
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: 10, background: 'white', borderRadius: 5, border: '1px solid #e1e4e8'
+                }}>
+                  <div>
+                    <strong>{model.name}</strong>
+                    {model.is_active && <span style={{ marginLeft: 10, color: '#27ae60', fontSize: '0.9em' }}>(Активна)</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    {!model.is_active && (
+                      <button
+                        onClick={() => changeActiveModel(model.name)}
+                        style={{
+                          padding: '6px 12px', background: '#667eea', color: 'white',
+                          border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: '0.85em'
+                        }}
+                      >
+                        Сделать активной
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDeleteModel(model.name)}
+                      disabled={model.is_active}
+                      style={{
+                        padding: '6px 12px', 
+                        background: model.is_active ? '#95a5a6' : '#e74c3c', 
+                        color: 'white', border: 'none', borderRadius: 4, 
+                        cursor: model.is_active ? 'not-allowed' : 'pointer', fontSize: '0.85em'
+                      }}
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Порог чувствительности */}
-        <div style={{ marginBottom: 20 }}>
+        <div style={{ padding: 15, background: '#f0f9ff', borderRadius: 5, border: '1px solid #bae6fd' }}>
+          <h4 style={{ marginTop: 0, color: '#0369a1' }}>Загрузить новую модель</h4>
+          <div style={{ display: 'flex', gap: 15, flexWrap: 'wrap', marginBottom: 15 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: '0.9em', color: '#666' }}>Файл модели (.pkl)</label>
+              <input
+                type="file"
+                accept=".pkl"
+                onChange={(e) => setModelFile(e.target.files?.[0] || null)}
+                style={{ width: '100%', marginTop: 5 }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: '0.9em', color: '#666' }}>Файл скейлера (_scaler.pkl)</label>
+              <input
+                type="file"
+                accept=".pkl"
+                onChange={(e) => setScalerFile(e.target.files?.[0] || null)}
+                style={{ width: '100%', marginTop: 5 }}
+              />
+            </div>
+          </div>
+          <button
+            onClick={handleModelUpload}
+            disabled={!modelFile || !scalerFile || uploadingModel}
+            style={{
+              padding: '10px 20px', background: (!modelFile || !scalerFile || uploadingModel) ? '#95a5a6' : '#27ae60',
+              color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 'bold'
+            }}
+          >
+            {uploadingModel ? 'Загрузка...' : 'Загрузить и активировать'}
+          </button>
+        </div>
+
+        <div style={{ marginTop: 25, paddingTop: 20, borderTop: '1px solid #eee' }}>
           <label style={{ display: 'block', marginBottom: 10, fontWeight: 'bold' }}>
             Порог чувствительности: <span style={{ color: '#667eea', fontSize: '1.2em' }}>{mlThreshold.toFixed(2)}</span>
           </label>
@@ -338,24 +428,16 @@ export default function Admin() {
             <span>0.0 (очень строго)</span>
             <span>1.0 (очень мягко)</span>
           </div>
+          <button
+            onClick={saveMLSettings}
+            style={{
+              marginTop: 15, padding: '12px 24px', background: '#27ae60', color: '#fff',
+              border: 'none', borderRadius: 5, cursor: 'pointer', fontSize: 16, fontWeight: 'bold'
+            }}
+          >
+            Сохранить настройки порога
+          </button>
         </div>
-
-        <button
-          onClick={saveMLSettings}
-          style={{
-            padding: '12px 24px',
-            background: '#27ae60',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 5,
-            cursor: 'pointer',
-            fontSize: 16,
-            fontWeight: 'bold'
-          }}
-        >
-          Сохранить настройки порога
-        </button>
       </div>
-    </div>
   )
 }
