@@ -27,7 +27,6 @@ jobs:
       - name: Install Python dependencies
         run: |
           cd backend
-          # Убедитесь, что в requirements.txt НЕТ дубликатов numpy и раскомментирован psycopg2-binary
           pip install -r requirements.txt
           pip install pytest flake8 black
           
@@ -90,7 +89,6 @@ jobs:
             -out nginx/ssl/fullchain.pem \
             -subj "/CN=localhost"
 
-      # 🔥 КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Явная сборка с точными тегами для Trivy
       - name: Build Docker images for scanning
         run: |
           docker build -t net-protector-backend:latest ./backend
@@ -102,9 +100,9 @@ jobs:
         with:
           image-ref: 'net-protector-backend:latest'
           format: 'table'
-          exit-code: '0'  # Измените на '1', чтобы блокировать PR при HIGH/CRITICAL уязвимостях
+          exit-code: '0'
           severity: 'CRITICAL,HIGH'
-          scanners: 'vuln' # Отключаем secret scanner для ускорения, как рекомендовано в логе
+          scanners: 'vuln'
 
       - name: Scan frontend image with Trivy
         uses: aquasecurity/trivy-action@master
@@ -190,23 +188,3 @@ jobs:
           tags: ${{ env.DOCKER_IMAGE }}-agent:${{ env.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-  # === 5. Создание релиза (только для тега) ===
-  create-release:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    if: startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
