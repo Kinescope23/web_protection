@@ -8,6 +8,7 @@ from app.models import User, RequestLog, Agent, UserMLSettings
 from app.api.deps import get_current_user
 from app.core.middleware import limiter
 from app.ml import predictor
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -88,9 +89,10 @@ def get_users_list(
 def get_user_metrics(
     request: Request,
     user_id: int,
-    hours: int = 6,
+    # Жесткая валидация входных данных (исправление Unchecked Input For Loop)
+    hours: int = Query(default=6, ge=1, le=24, description="Количество часов от 1 до 24"),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
     """Метрики конкретного пользователя"""
     if user.role != "admin" and user.id != user_id:

@@ -38,13 +38,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const urlParams = new URLSearchParams(window.location.search)
     const tokenFromUrl = urlParams.get('token')
 
-    if (tokenFromUrl) {
-      // Сохраняем токен в localStorage
+    // Валидация формата JWT (header.payload.signature) перед сохранением
+    // Это предотвращает Browser Storage Poisoning
+    const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/
+    
+    if (tokenFromUrl && jwtRegex.test(tokenFromUrl)) {
       localStorage.setItem('token', tokenFromUrl)
-      // Убираем токен из URL, чтобы он не мелькал в адресной строке
       window.history.replaceState({}, document.title, window.location.pathname)
     }
 
+    // Проверяем наличие токена (из localStorage или только что из URL)
     const token = localStorage.getItem('token')
     if (token) {
       api.get('/users/me')
@@ -53,9 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           localStorage.removeItem('token')
           setUser(null)
         })
-        .finally(() => setLoading(false)) // <-- ДОБАВЛЕНО
+        .finally(() => setLoading(false))
     } else {
-      setLoading(false) // <-- ДОБАВЛЕНО
+      setLoading(false)
     }
   }, [])
 

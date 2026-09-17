@@ -8,6 +8,8 @@ from app.ml import predictor
 import secrets
 import os
 from datetime import datetime
+import aiofiles
+from werkzeug.utils import secure_filename
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -95,36 +97,34 @@ def get_available_models(admin: User = Depends(require_admin)):
 
 @router.post("/ml-models")
 async def upload_ml_model(
-    model_file: UploadFile = File(...),
-    scaler_file: UploadFile = File(...),
-    admin: User = Depends(require_admin),
+        model_file: UploadFile = File(...),
+        scaler_file: UploadFile = File(...),
+        admin: User = Depends(require_admin)
 ):
-    """Загрузить новую ML-модель (пара .pkl + _scaler.pkl)"""
-    if not model_file.filename.endswith(".pkl") or model_file.filename.endswith(
-        "_scaler.pkl"
-    ):
-        raise HTTPException(
-            400, "Файл модели должен иметь расширение .pkl и не быть скейлером"
-        )
-    if not scaler_file.filename.endswith("_scaler.pkl"):
+    # 1. Санитизация имен файлов (защита от Path Traversal)
+    safe_model_name = secure_filename(model_file.filename)
+    safe_scaler_name = secure_filename(scaler_file.filename)
+
+    if not safe_model_name.endswith(".pkl") or safe_model_name.endswith("_scaler.pkl"):
+        raise HTTPException(400, "Файл модели должен иметь расширение .pkl и не быть скейлером")
+    if not safe_scaler_name.endswith("_scaler.pkl"):
         raise HTTPException(400, "Файл скейлера должен иметь расширение _scaler.pkl")
 
-    model_name = model_file.filename[:-4]
+    model_name = safe_model_name[:-4]
     expected_scaler_name = f"{model_name}_scaler.pkl"
 
-    if scaler_file.filename != expected_scaler_name:
-        raise HTTPException(
-            400, f"Имя файла скейлера должно быть {expected_scaler_name}"
-        )
+    if safe_scaler_name != expected_scaler_name:
+        raise HTTPException(400, f"Имя файла скейлера должно быть {expected_scaler_name}")
 
     os.makedirs(BASE_DIR, exist_ok=True)
-    model_path = os.path.join(BASE_DIR, model_file.filename)
-    scaler_path = os.path.join(BASE_DIR, scaler_file.filename)
+    model_path = os.path.join(BASE_DIR, safe_model_name)
+    scaler_path = os.path.join(BASE_DIR, safe_scaler_name)
 
-    with open(model_path, "wb") as f:
-        f.write(await model_file.read())
-    with open(scaler_path, "wb") as f:
-        f.write(await scaler_file.read())
+    # 2. Асинхронная запись файлов (исправление SAST предупреждения)
+    async with aiofiles.open(model_path, "wb") as f:
+        await f.write(await model_file.read())
+    async with aiofiles.open(scaler_path, "wb") as f:
+        await f.write(await scaler_file.read())
 
     predictor._load_all()
 

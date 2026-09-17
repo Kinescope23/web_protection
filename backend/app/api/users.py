@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from PIL import Image
+import aiofiles
+from pathlib import Path
 
 from app.database import get_db
 from app.models import User, Session as SessionModel, APIToken
@@ -198,8 +200,9 @@ async def upload_avatar(
     filename = f"{user.id}_{secrets.token_hex(8)}.{ext}"
     filepath = os.path.join(AVATARS_DIR, filename)
 
-    with open(filepath, "wb") as f:
-        f.write(content)
+    # Асинхронная запись
+    async with aiofiles.open(filepath, "wb") as f:
+        await f.write(content)
 
     # Обновляем запись в БД
     user.avatar_url = f"/uploads/avatars/{filename}"
@@ -226,8 +229,23 @@ def get_avatar(user: User = Depends(get_current_user)):
 # === Публичный эндпоинт для получения аватара по URL ===
 @router.get("/avatar/{filename}")
 def get_avatar_public(filename: str):
-    """Публичный доступ к аватарам (для отображения в UI)"""
-    filepath = os.path.join(AVATARS_DIR, filename)
-    if not os.path.exists(filepath) or ".." in filename:
+    # 1. Базовая санитизация
+    if not filename or ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(400, "Недопустимое имя файла")
+
+    # 2. Проверка расширения
+    if not filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif')):
+        raise HTTPException(400, "Недопустимое расширение файла")
+
+    # 3. Защита от Path Traversal через разрешение абсолютного пути
+    avatars_dir = Path("/app/uploads/avatars").resolve()
+    filepath = (avatars_dir / filename).resolve()
+
+    # 4. Проверка, что путь находится строго внутри разрешенной директории (исправление Filesystem Oracle)
+    if not str(filepath).startswith(str(avatars_dir)):
+        raise HTTPException(403, "Доступ запрещен")
+
+    if not filepath.exists():
         raise HTTPException(404, "Аватар не найден")
-    return FileResponse(filepath)
+
+    return FileResponse(str(filepath))
