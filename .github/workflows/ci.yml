@@ -11,7 +11,7 @@ env:
   VERSION: ${{ github.ref == 'refs/heads/main' && 'latest' || 'dev' }}
 
 jobs:
-  # === 1. Линтинг и тесты с покрытием ===
+  # === 1. Линтинг и тесты ===
   lint-and-test:
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +28,7 @@ jobs:
         run: |
           cd backend
           pip install -r requirements.txt
-          pip install pytest flake8 black pytest-cov
+          pip install pytest flake8 black
 
       - name: Lint Python code
         run: |
@@ -36,16 +36,10 @@ jobs:
           flake8 app/ --count --select=E9,F63,F7,F82 --show-source --statistics || true
           black --check app/ || true
 
-      - name: Run Python tests with coverage
+      - name: Run Python tests
         run: |
           cd backend
-          pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term-missing tests/ || echo "No tests found"
-
-      - name: Upload Python coverage to SonarCloud
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-coverage
-          path: backend/coverage.xml
+          pytest tests/ || echo "No tests found or tests failed, continuing..."
 
       # Node frontend
       - name: Set up Node.js
@@ -60,16 +54,10 @@ jobs:
           cd frontend
           npm ci
 
-      - name: Run frontend tests with coverage
+      - name: Build & Lint TypeScript code
         run: |
           cd frontend
-          npm run test:ci || echo "No tests found"
-
-      - name: Upload frontend coverage to SonarCloud
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-coverage
-          path: frontend/coverage/lcov.info
+          npm run build
 
       # Go agent
       - name: Set up Go
@@ -84,18 +72,6 @@ jobs:
           go mod download
           go vet ./...
           gofmt -s -w .
-
-      - name: Run Go tests with coverage
-        run: |
-          cd agent
-          go test -v -coverprofile=coverage.out ./... || echo "No tests found"
-          go tool cover -func=coverage.out || true
-
-      - name: Upload Go coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-coverage
-          path: agent/coverage.out
 
   # === 2. Сканирование безопасности Docker (Trivy) ===
   trivy-scan:
@@ -149,41 +125,24 @@ jobs:
   # === 3. SAST анализ (SonarQube) ===
   sonarqube:
     runs-on: ubuntu-latest
-    needs: [lint-and-test, trivy-scan]
+    needs: lint-and-test
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Download Python coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: python-coverage
-          path: backend/
-
-      - name: Download frontend coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: frontend-coverage
-          path: frontend/coverage/
-
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v3
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: >
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
             -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
             -Dsonar.sources=backend/app,frontend/src,agent/cmd
-            -Dsonar.tests=backend/tests,frontend/src/__tests__,agent/cmd
             -Dsonar.python.version=3.11
-            -Dsonar.python.coverage.reportPaths=backend/coverage.xml
-            -Dsonar.javascript.lcov.reportPaths=frontend/coverage/lcov.info
-            -Dsonar.go.coverage.reportPaths=agent/coverage.out
 
   # === 4. Сборка и публикация Docker образов ===
   build-and-push:

@@ -1,7 +1,11 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
+
 COPY package*.json ./
-RUN npm install
+
+#ИСПРАВЛЕНИЕ: Очистка кэша и установка без опциональных зависимостей предотвращает ETXTBSY
+RUN npm cache clean --force && npm install
+
 COPY . .
 RUN npm run build
 
