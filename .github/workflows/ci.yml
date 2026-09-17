@@ -60,10 +60,12 @@ jobs:
           cd frontend
           npm ci
 
+      
       - name: Run frontend tests with coverage
         run: |
           cd frontend
-          npm run test:ci || echo "No tests found"
+          npm run test:coverage|| echo "No tests found"
+
 
       - name: Upload frontend coverage to SonarCloud
         uses: actions/upload-artifact@v4
