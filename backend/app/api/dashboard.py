@@ -89,7 +89,7 @@ def get_users_list(
 def get_user_metrics(
     request: Request,
     user_id: int,
-    # 🔥 ИСПРАВЛЕНИЕ: Жесткая валидация входных данных (ge=1, le=24)
+    # ИСПРАВЛЕНИЕ: Жесткая валидация входных данных (ge=1, le=24)
     hours: int = Query(default=6, ge=1, le=24, description="Количество часов от 1 до 24"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -97,7 +97,7 @@ def get_user_metrics(
     """Метрики конкретного пользователя"""
     if user.role != "admin" and user.id != user_id:
         raise HTTPException(403, "Доступ запрещён")
-
+    hours = max(1, min(int(hours), 24))
     target = db.query(User).filter(User.id == user_id).first()
     if not target:
         raise HTTPException(404, "Пользователь не найден")
