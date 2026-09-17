@@ -100,16 +100,18 @@ def get_available_models(admin: User = Depends(require_admin)):
 
 @router.post("/ml-models")
 async def upload_ml_model(
-        model_file: UploadFile = File(...),
-        scaler_file: UploadFile = File(...),
-        admin: User = Depends(require_admin)
+    model_file: UploadFile = File(...),
+    scaler_file: UploadFile = File(...),
+    admin: User = Depends(require_admin),
 ):
     # 1. Санитизация имен файлов (защита от Path Traversal)
     safe_model_name = secure_filename(model_file.filename)
     safe_scaler_name = secure_filename(scaler_file.filename)
 
     if not safe_model_name.endswith(".pkl") or safe_model_name.endswith("_scaler.pkl"):
-        raise HTTPException(400, "Файл модели должен иметь расширение .pkl и не быть скейлером")
+        raise HTTPException(
+            400, "Файл модели должен иметь расширение .pkl и не быть скейлером"
+        )
     if not safe_scaler_name.endswith("_scaler.pkl"):
         raise HTTPException(400, "Файл скейлера должен иметь расширение _scaler.pkl")
 
@@ -117,7 +119,9 @@ async def upload_ml_model(
     expected_scaler_name = f"{model_name}_scaler.pkl"
 
     if safe_scaler_name != expected_scaler_name:
-        raise HTTPException(400, f"Имя файла скейлера должно быть {expected_scaler_name}")
+        raise HTTPException(
+            400, f"Имя файла скейлера должно быть {expected_scaler_name}"
+        )
 
     os.makedirs(BASE_DIR, exist_ok=True)
     model_path = os.path.join(BASE_DIR, safe_model_name)
@@ -136,12 +140,13 @@ async def upload_ml_model(
 
 # ... (внутри файла admin.py) ...
 
+
 @router.delete("/ml-models/{model_name}")
 def delete_ml_model(
-        model_name: str,
-        request: Request,
-        admin: User = Depends(require_admin),
-        db: Session = Depends(get_db)
+    model_name: str,
+    request: Request,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
 ):
     """Удалить ML-модель с сервера"""
     # 1. Строгий whitelist: имя должно быть одним из разрешенных
@@ -157,7 +162,9 @@ def delete_ml_model(
     scaler_path = (base_path / f"{model_name}_scaler.pkl").resolve()
 
     # 3. Проверка, что итоговые пути находятся строго внутри BASE_DIR
-    if not str(model_path).startswith(str(base_path)) or not str(scaler_path).startswith(str(base_path)):
+    if not str(model_path).startswith(str(base_path)) or not str(
+        scaler_path
+    ).startswith(str(base_path)):
         raise HTTPException(403, "Недопустимый путь к файлу")
 
     try:
@@ -173,9 +180,11 @@ def delete_ml_model(
     predictor._load_all()
 
     log_audit(
-        db, admin.id, "DELETE_ML_MODEL",
+        db,
+        admin.id,
+        "DELETE_ML_MODEL",
         f"Удалена модель: {model_name}",
-        request.client.host if request.client else "unknown"
+        request.client.host if request.client else "unknown",
     )
 
     return {"message": f"Модель '{model_name}' успешно удалена"}

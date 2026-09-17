@@ -234,7 +234,7 @@ def get_avatar_public(filename: str):
         raise HTTPException(400, "Недопустимое имя файла")
 
     # 2. Проверка расширения
-    if not filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif')):
+    if not filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif")):
         raise HTTPException(400, "Недопустимое расширение файла")
 
     # 3. Защита от Path Traversal через разрешение абсолютного пути
