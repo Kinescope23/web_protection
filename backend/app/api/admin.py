@@ -10,6 +10,9 @@ import os
 from datetime import datetime
 import aiofiles
 from werkzeug.utils import secure_filename
+import os
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 
@@ -131,34 +134,48 @@ async def upload_ml_model(
     return {"message": f"Модель '{model_name}' успешно загружена и активирована"}
 
 
+# ... (внутри файла admin.py) ...
+
 @router.delete("/ml-models/{model_name}")
 def delete_ml_model(
-    model_name: str,
-    request: Request,
-    admin: User = Depends(require_admin),
-    db: Session = Depends(get_db),
+        model_name: str,
+        request: Request,
+        admin: User = Depends(require_admin),
+        db: Session = Depends(get_db)
 ):
     """Удалить ML-модель с сервера"""
-    if model_name not in predictor.models:
+    # 1. Строгий whitelist: имя должно быть одним из разрешенных
+    if model_name not in predictor.AVAILABLE_MODELS:
         raise HTTPException(404, "Модель не найдена")
 
-    model_path = os.path.join(BASE_DIR, f"{model_name}.pkl")
-    scaler_path = os.path.join(BASE_DIR, f"{model_name}_scaler.pkl")
+    if model_name not in predictor.models:
+        raise HTTPException(404, "Модель не загружена в память")
+
+    # 2. Защита от Path Traversal через разрешение абсолютных путей
+    base_path = Path(BASE_DIR).resolve()
+    model_path = (base_path / f"{model_name}.pkl").resolve()
+    scaler_path = (base_path / f"{model_name}_scaler.pkl").resolve()
+
+    # 3. Проверка, что итоговые пути находятся строго внутри BASE_DIR
+    if not str(model_path).startswith(str(base_path)) or not str(scaler_path).startswith(str(base_path)):
+        raise HTTPException(403, "Недопустимый путь к файлу")
 
     try:
-        os.remove(model_path)
-        os.remove(scaler_path)
+        # Безопасное удаление
+        if model_path.exists():
+            model_path.unlink()
+        if scaler_path.exists():
+            scaler_path.unlink()
     except OSError as e:
         raise HTTPException(500, f"Ошибка удаления файлов модели: {str(e)}")
 
+    # Перезагрузка списка моделей в памяти
     predictor._load_all()
 
     log_audit(
-        db,
-        admin.id,
-        "DELETE_ML_MODEL",
+        db, admin.id, "DELETE_ML_MODEL",
         f"Удалена модель: {model_name}",
-        request.client.host if request.client else "unknown",
+        request.client.host if request.client else "unknown"
     )
 
     return {"message": f"Модель '{model_name}' успешно удалена"}
