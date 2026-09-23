@@ -1,13 +1,22 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api/v1' })
+const api = axios.create({
+  baseURL: '/api/v1',
+  withCredentials: true,  // Для отправки cookies
+})
 
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+  // Читаем CSRF-токен из cookie
+  const csrfToken = document.cookie
+    .split('; ')
+    .find(row => row.startsWith('csrf_token='))
+    ?.split('=')[1]
+  
+  if (csrfToken && ['post', 'put', 'delete', 'patch'].includes(config.method?.toLowerCase() || '')) {
+    config.headers['X-CSRF-Token'] = csrfToken
   }
+  
   return config
 })
 

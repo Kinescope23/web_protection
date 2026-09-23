@@ -27,6 +27,7 @@ class User(Base):
     is_2fa_enabled = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    two_factor_method = Column(String(16), default="none")
 
 
 class Session(Base):
@@ -140,3 +141,13 @@ class UserMLSettings(Base):
     ml_model = Column(String(64), default="isolation_forest")
     ml_threshold = Column(Float, default=0.65)
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class EmailVerificationCode(Base):
+    __tablename__ = "email_verification_codes"
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    code = Column(String(6), nullable=False)
+    attempts = Column(Integer, default=0)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_used = Column(Boolean, default=False)
