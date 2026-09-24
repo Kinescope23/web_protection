@@ -1,42 +1,11 @@
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
+*$py.class
+
+# Node.js / Frontend Dependencies
+node_modules/
+
+# Build Outputs
 dist/
 build/
-.venv/
-venv/
-.eggs/
-central/model/*.pkl
-central/uploads/
-
-# Go
-agent/sentinel-agent
-*.exe
-
-# Node
-dashboard/node_modules/
-dashboard/dist/
-node_modules/
-dist/
-*.local
-
-# Docker & Env
-.env
-*.pem
-*.log
-
-# Environment
-.env
-.env.local
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Uploads
-uploads/

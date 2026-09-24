@@ -8,7 +8,10 @@ export default function Navbar() {
   const isActive = (path: string) => location.pathname === path
 
   const linkStyle = (path: string): React.CSSProperties => ({
-    padding: '8px 16px',
+    padding: '12px 16px',
+    minHeight: 44,
+    display: 'flex',
+    alignItems: 'center',
     textDecoration: 'none',
     color: isActive(path) ? '#fff' : '#ecf0f1',
     background: isActive(path) ? '#34495e' : 'transparent',
@@ -28,7 +31,7 @@ export default function Navbar() {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
         <Link to="/dashboard" style={{ color: '#fff', textDecoration: 'none', fontSize: 18, fontWeight: 'bold' }}>
-          🛡 Net Protector
+           Net Protector
         </Link>
         <div style={{ display: 'flex', gap: 10 }}>
           <Link to="/dashboard" style={linkStyle('/dashboard')}>Дашборд</Link>
@@ -47,13 +50,15 @@ export default function Navbar() {
         <button
           onClick={logout}
           style={{
-            padding: '6px 12px',
+            padding: '10px 16px',
+            minHeight: 44,
+            minWidth: 44,
             background: '#e74c3c',
             color: '#fff',
             border: 'none',
             borderRadius: 4,
             cursor: 'pointer',
-            fontSize: 13,
+            fontSize: 14,
           }}
         >
           Выйти

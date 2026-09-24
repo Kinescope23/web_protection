@@ -6,17 +6,23 @@ const api = axios.create({
   withCredentials: true,  // Для отправки cookies
 })
 
+// Добавляем заголовок Authorization с JWT-токеном ко всем запросам
 api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token')
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+
   // Читаем CSRF-токен из cookie
   const csrfToken = document.cookie
     .split('; ')
     .find(row => row.startsWith('csrf_token='))
     ?.split('=')[1]
-  
+
   if (csrfToken && ['post', 'put', 'delete', 'patch'].includes(config.method?.toLowerCase() || '')) {
     config.headers['X-CSRF-Token'] = csrfToken
   }
-  
+
   return config
 })
 
@@ -31,7 +37,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null
-  loading: boolean // <-- ДОБАВЛЕНО
+  loading: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => void
 }
@@ -40,7 +46,7 @@ const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true) // <-- ДОБАВЛЕНО
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     // === Обработка токена из URL после OAuth callback ===
@@ -50,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Валидация формата JWT (header.payload.signature) перед сохранением
     // Это предотвращает Browser Storage Poisoning
     const jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/
-    
+
     if (tokenFromUrl && jwtRegex.test(tokenFromUrl)) {
       localStorage.setItem('token', tokenFromUrl)
       window.history.replaceState({}, document.title, window.location.pathname)

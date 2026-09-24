@@ -15,7 +15,7 @@ logging.basicConfig(
 
 logger = logging.getLogger("net_protector")
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+limiter = Limiter(key_func=get_remote_address, default_limits=["10/minute"])
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

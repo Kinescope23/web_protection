@@ -6,8 +6,14 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o agent ./cmd/main.go
 
 FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
+RUN apk --no-cache add ca-certificates \
+    && addgroup -S appuser && adduser -S appuser -G appuser
+
+WORKDIR /home/appuser
 COPY --from=builder /app/agent .
+RUN chown appuser:appuser agent
+
+USER appuser
+
 EXPOSE 8080
 CMD ["./agent"]
