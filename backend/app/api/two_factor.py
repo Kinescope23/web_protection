@@ -13,10 +13,16 @@ from app.core.security import verify_password, create_access_token
 
 router = APIRouter(prefix="/api/v1/2fa", tags=["2fa"])
 
-
 class Enable2FARequest(BaseModel):
     method: str  # "email" или "totp" или "none"
 
+class Send2FARequest(BaseModel):
+    email: str
+    password: str
+
+class Verify2FARequest(BaseModel):
+    email: str
+    code: str
 
 @router.post("/enable-email")
 @limiter.limit("5/minute")
@@ -40,21 +46,19 @@ async def enable_email_2fa(
         "is_enabled": user.is_2fa_enabled
     }
 
-
 @router.post("/send-code")
 @limiter.limit("3/minute")
 async def send_2fa_code(
     request: Request,
-    email: str,
-    password: str,
+    data: Send2FARequest,
     db: Session = Depends(get_db)
 ):
     """Отправляет код подтверждения на email после проверки пароля"""
-    user = db.query(User).filter(User.email == email).first()
+    user = db.query(User).filter(User.email == data.email).first()
     if not user:
         raise HTTPException(401, "Неверные учетные данные")
 
-    if not verify_password(password, user.password_hash):
+    if not verify_password(data.password, user.password_hash):
         raise HTTPException(401, "Неверные учетные данные")
 
     if user.two_factor_method != "email":
@@ -83,17 +87,15 @@ async def send_2fa_code(
         "expires_in": 300
     }
 
-
 @router.post("/verify-code")
 @limiter.limit("10/minute")
-def verify_2fa_code(
+async def verify_2fa_code(
     request: Request,
-    email: str,
-    code: str,
+    data: Verify2FARequest,
     db: Session = Depends(get_db)
 ):
     """Проверяет код и возвращает JWT-токен"""
-    user = db.query(User).filter(User.email == email).first()
+    user = db.query(User).filter(User.email == data.email).first()
     if not user:
         raise HTTPException(401, "Неверные учетные данные")
 
@@ -111,7 +113,7 @@ def verify_2fa_code(
         db.commit()
         raise HTTPException(429, "Превышено количество попыток. Запросите новый код.")
 
-    if verification.code != code:
+    if verification.code != data.code:
         verification.attempts += 1
         db.commit()
         remaining = 3 - verification.attempts
@@ -132,7 +134,6 @@ def verify_2fa_code(
             "role": user.role
         }
     }
-
 
 @router.get("/status")
 def get_2fa_status(
