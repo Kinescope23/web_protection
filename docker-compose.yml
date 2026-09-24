@@ -23,15 +23,16 @@ services:
   # === Backend (FastAPI) ===
   backend:
     build: ./backend
+    image: net-protector-backend:latest
     container_name: np-backend
     read_only: true
-    tmpfs:                             # <-- ДОБАВЛЕНО
+    tmpfs:                             
       - /tmp
-    security_opt:                      # <-- ДОБАВЛЕНО
+    security_opt:                      
       - no-new-privileges:true
-    cap_drop:                          # <-- ДОБАВЛЕНО
+    cap_drop:                          
       - ALL
-    cap_add:                           # <-- ДОБАВЛЕНО
+    cap_add:                           
       - NET_BIND_SERVICE
     environment:
       - DATABASE_URL=postgresql://${DB_USER:-np_user}:${DB_PASSWORD:-np_password}@db:5432/${DB_NAME:-np_db}
@@ -57,6 +58,7 @@ services:
   # === Frontend (React) ===
   frontend:
     build: ./frontend
+    image: net-protector-frontend:latest
     container_name: np-frontend
     networks:
       - app_network
