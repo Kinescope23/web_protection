@@ -84,15 +84,12 @@ jobs:
             -out nginx/ssl/fullchain.pem \
             -subj "/CN=localhost"
       
-      - name: Build Docker images
-        run: docker compose build
-        env:
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-          GITHUB_CLIENT_ID: ${{ secrets._GITHUB_CLIENT_ID }}
-          GITHUB_CLIENT_SECRET: ${{ secrets._GITHUB_CLIENT_SECRET }}
+      - name: Build Docker images for scanning
+        run: |
+          docker build -t net-protector-backend:latest ./backend
+          docker build -t net-protector-frontend:latest ./frontend
       
-      - name: Run Trivy vulnerability scanner
+      - name: Run Trivy vulnerability scanner (Backend)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'net-protector-backend:latest'
@@ -100,7 +97,7 @@ jobs:
           exit-code: '0'
           severity: 'CRITICAL,HIGH'
       
-      - name: Scan frontend image
+      - name: Run Trivy vulnerability scanner (Frontend)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'net-protector-frontend:latest'
